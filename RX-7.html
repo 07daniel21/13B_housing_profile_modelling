@@ -1,0 +1,3211 @@
+<!DOCTYPE html>
+<html lang="ko" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>반켈(13B) 엔진 허리부 곡률 수정 &amp; 내벽 마모 시뮬레이터</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Three.js r128 CDN for 3D Rotary Engine Simulation -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <!-- Inter & Noto Sans KR Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&family=JetBrains+Mono:wght@500;700&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      color-scheme: dark;
+    }
+    body {
+      background-color: #000000;
+      color: #ffffff;
+      font-family: "Inter", "Noto Sans KR", -apple-system, BlinkMacSystemFont, sans-serif;
+      overflow-x: hidden;
+    }
+    .font-mono-num {
+      font-family: "JetBrains Mono", Consolas, monospace;
+    }
+    /* Custom sleek dark range slider matching Tkinter dark theme */
+    input[type="range"].sim-slider {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 6px;
+      background: #27272a;
+      border-radius: 9999px;
+      outline: none;
+      cursor: pointer;
+    }
+    input[type="range"].sim-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 15px;
+      height: 15px;
+      border-radius: 9999px;
+      background: #ffffff;
+      border: 2px solid #38bdf8;
+      cursor: pointer;
+      transition: transform 0.1s ease, background-color 0.15s ease;
+    }
+    input[type="range"].sim-slider::-webkit-slider-thumb:hover {
+      background: #38bdf8;
+      transform: scale(1.12);
+    }
+    input[type="range"].sim-slider:disabled {
+      background: #18181b;
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+    input[type="range"].sim-slider:disabled::-webkit-slider-thumb {
+      background: #52525b;
+      border-color: #3f3f46;
+      cursor: not-allowed;
+    }
+    /* Custom slim scrollbar for report panels */
+    .dark-scroll::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    .dark-scroll::-webkit-scrollbar-track {
+      background: #09090b;
+    }
+    .dark-scroll::-webkit-scrollbar-thumb {
+      background: #27272a;
+      border-radius: 9999px;
+    }
+    .dark-scroll::-webkit-scrollbar-thumb:hover {
+      background: #3f3f46;
+    }
+  </style>
+</head>
+<body class="bg-black text-white min-h-screen flex flex-col select-none">
+
+  <!-- ====================================================================== -->
+  <!-- 1. 상단 헤더 바 (타이틀 + 5개 뷰 전환 버튼 + 상태 표시)                     -->
+  <!-- ====================================================================== -->
+  <header class="bg-black border-b border-zinc-800 px-4 py-2.5 flex flex-wrap items-center justify-between gap-3">
+    <div class="min-w-0">
+      <h1 class="text-sm sm:text-base font-extrabold tracking-wide text-white truncate">
+        WANKEL 13B WAIST CURVATURE &amp; WEAR SIMULATOR
+      </h1>
+      <p class="text-[11px] text-zinc-400 truncate">
+        Mazda RX-8 13B 기준 · 허리부(Waist) 국부 DF 곡률 보정 &amp; 혼합윤활 장기 마모 해석
+      </p>
+    </div>
+
+    <div class="flex flex-wrap items-center gap-1.5">
+      <button id="tab-engine" data-tab="engine"
+        class="tab-btn px-3 py-1.5 rounded-md text-xs font-bold transition bg-white text-black">
+        ● 엔진 시뮬레이션
+      </button>
+      <button id="tab-engine3d" data-tab="engine3d"
+        class="tab-btn px-3 py-1.5 rounded-md text-xs font-bold transition bg-zinc-900 text-white border border-zinc-700 hover:bg-zinc-800">
+        3D 회전 시뮬레이션
+      </button>
+      <button id="tab-graphs" data-tab="graphs"
+        class="tab-btn px-3 py-1.5 rounded-md text-xs font-bold transition bg-zinc-900 text-white border border-zinc-700 hover:bg-zinc-800">
+        상세 마모 그래프
+      </button>
+      <button id="tab-analysis" data-tab="analysis"
+        class="tab-btn px-3 py-1.5 rounded-md text-xs font-bold transition bg-zinc-900 text-white border border-zinc-700 hover:bg-zinc-800">
+        세팅값 영향 분석
+      </button>
+      <button id="tab-sealing" data-tab="sealing"
+        class="tab-btn px-3 py-1.5 rounded-md text-xs font-bold transition bg-zinc-900 text-white border border-zinc-700 hover:bg-zinc-800">
+        기밀 누설 분석
+      </button>
+      <span id="status-badge"
+        class="ml-1 px-2.5 py-1.5 rounded-md text-[11px] font-bold bg-[#0d0d0d] text-emerald-400 border border-zinc-800">
+        13B 프리셋 준비
+      </span>
+    </div>
+  </header>
+
+  <!-- ====================================================================== -->
+  <!-- 2. 중앙 뷰포트 (5개 탭 컨테이너)                                           -->
+  <!-- ====================================================================== -->
+  <main class="flex-1 flex flex-col px-3.5 pt-2.5 pb-1.5 gap-2 max-w-[1600px] w-full mx-auto">
+
+    <section class="relative flex-1 min-h-[430px] lg:min-h-[470px] bg-black rounded-lg overflow-hidden">
+
+      <!-- [뷰 A] 2D 엔진 실시간 시뮬레이션 -->
+      <div id="view-engine" class="w-full h-full min-h-[430px] lg:min-h-[470px] relative">
+        <canvas id="canvas-2d" class="w-full h-full block"></canvas>
+      </div>
+
+      <!-- [뷰 A-2] 3D 모델 기반 회전 시뮬레이션 (Three.js) -->
+      <div id="view-engine3d" class="hidden w-full h-full min-h-[430px] lg:min-h-[470px] flex flex-col">
+        <div class="flex flex-wrap items-center justify-between gap-2 pb-1.5">
+          <span class="text-[11px] text-zinc-400">
+            3D 인터랙티브 모델 (마우스 좌클릭 드래그: 회전 / 휠 스크롤: 확대·축소 / 터치 드래그 지원)
+          </span>
+          <div class="flex flex-wrap items-center gap-1.5">
+            <button data-cam="iso" class="cam-btn px-2.5 py-1 rounded text-[11px] font-bold bg-zinc-900 text-white border border-zinc-700 hover:bg-zinc-800">기본 입체 뷰</button>
+            <button data-cam="front" class="cam-btn px-2.5 py-1 rounded text-[11px] font-bold bg-zinc-900 text-white border border-zinc-700 hover:bg-zinc-800">정면 뷰</button>
+            <button data-cam="side" class="cam-btn px-2.5 py-1 rounded text-[11px] font-bold bg-zinc-900 text-white border border-zinc-700 hover:bg-zinc-800">측면 뷰</button>
+            <button data-cam="back" class="cam-btn px-2.5 py-1 rounded text-[11px] font-bold bg-zinc-900 text-white border border-zinc-700 hover:bg-zinc-800">후면 뷰</button>
+            <button data-cam="waist" class="cam-btn px-2.5 py-1 rounded text-[11px] font-bold bg-zinc-900 text-white border border-zinc-700 hover:bg-zinc-800">허리부 클로즈업</button>
+          </div>
+        </div>
+        <div id="container-3d" class="relative flex-1 min-h-[395px] bg-black rounded-lg border border-zinc-900 overflow-hidden cursor-grab active:cursor-grabbing">
+          <!-- 3D HUD Overlay -->
+          <div id="hud-3d" class="pointer-events-none absolute top-2.5 left-2.5 z-10 px-3 py-2 rounded-md bg-[#0d0d0d]/90 border border-zinc-800 text-[11px] text-zinc-200 font-mono-num leading-relaxed"></div>
+          <!-- 4-Stroke 3D Indicator Overlay -->
+          <div class="pointer-events-none absolute bottom-2.5 left-2.5 z-10 flex items-center gap-2 text-[11px] font-bold">
+            <span id="lbl3d-intake" class="px-2 py-0.5 rounded bg-zinc-950/80 border border-zinc-800 text-zinc-600">INTAKE (흡입)</span>
+            <span id="lbl3d-comp" class="px-2 py-0.5 rounded bg-zinc-950/80 border border-zinc-800 text-zinc-600">COMPRESSION (압축)</span>
+            <span id="lbl3d-ign" class="px-2 py-0.5 rounded bg-zinc-950/80 border border-zinc-800 text-zinc-600">IGNITION (폭발·팽창)</span>
+            <span id="lbl3d-exh" class="px-2 py-0.5 rounded bg-zinc-950/80 border border-zinc-800 text-zinc-600">EXHAUST (배기)</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- [뷰 B] 상세 마모 그래프 4종 (2x2) -->
+      <div id="view-graphs" class="hidden w-full h-full min-h-[430px] lg:min-h-[470px] grid grid-cols-1 md:grid-cols-2 gap-2.5">
+        <div class="bg-[#0d0d0d] border border-zinc-800 rounded-lg p-2 flex flex-col min-h-[210px]">
+          <canvas id="chart-wear" class="w-full h-full block"></canvas>
+        </div>
+        <div class="bg-[#0d0d0d] border border-zinc-800 rounded-lg p-2 flex flex-col min-h-[210px]">
+          <canvas id="chart-spring" class="w-full h-full block"></canvas>
+        </div>
+        <div class="bg-[#0d0d0d] border border-zinc-800 rounded-lg p-2 flex flex-col min-h-[210px]">
+          <canvas id="chart-long" class="w-full h-full block"></canvas>
+        </div>
+        <div class="bg-[#0d0d0d] border border-zinc-800 rounded-lg p-2 flex flex-col min-h-[210px]">
+          <canvas id="chart-rpm" class="w-full h-full block"></canvas>
+        </div>
+      </div>
+
+      <!-- [뷰 C] 세팅값 영향 분석 -->
+      <div id="view-analysis" class="hidden w-full h-full min-h-[430px] lg:min-h-[470px] grid grid-cols-1 lg:grid-cols-11 gap-3">
+        <div class="lg:col-span-5 bg-[#0d0d0d] border border-zinc-800 rounded-lg p-2.5 flex flex-col min-h-[300px]">
+          <canvas id="chart-contrib" class="w-full h-full block"></canvas>
+        </div>
+        <div class="lg:col-span-6 bg-[#0d0d0d] border border-zinc-800 rounded-lg p-3 flex flex-col min-h-[300px] max-h-[470px]">
+          <h2 class="text-xs sm:text-sm font-bold text-white mb-2">세팅값 물리적 영향 &amp; 최적화 결정 근거 리포트</h2>
+          <div id="report-analysis" class="flex-1 bg-black rounded-md p-3.5 overflow-y-auto dark-scroll text-xs leading-relaxed select-text"></div>
+        </div>
+      </div>
+
+      <!-- [뷰 D] 기밀 누설 분석 -->
+      <div id="view-sealing" class="hidden w-full h-full min-h-[430px] lg:min-h-[470px] grid grid-cols-1 lg:grid-cols-11 gap-3">
+        <div class="lg:col-span-5 bg-[#0d0d0d] border border-zinc-800 rounded-lg p-2.5 flex flex-col gap-2 min-h-[360px]">
+          <div class="flex-1 min-h-[175px]">
+            <canvas id="chart-leak-bar" class="w-full h-full block"></canvas>
+          </div>
+          <div class="flex-1 min-h-[175px]">
+            <canvas id="chart-rad-force" class="w-full h-full block"></canvas>
+          </div>
+        </div>
+        <div class="lg:col-span-6 bg-[#0d0d0d] border border-zinc-800 rounded-lg p-3 flex flex-col min-h-[300px] max-h-[470px]">
+          <h2 class="text-xs sm:text-sm font-bold text-white mb-2">엔진 기밀(블로바이) 진단 기준 &amp; 퍼센트(%) 산출 근거 리포트</h2>
+          <div id="report-sealing" class="flex-1 bg-black rounded-md p-3.5 overflow-y-auto dark-scroll text-xs leading-relaxed select-text"></div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ==================================================================== -->
+    <!-- 3. 엔진 작동 가능성 판정 바 + 7개 정량 수치 대시보드                         -->
+    <!-- ==================================================================== -->
+    <section class="bg-[#0d0d0d] border border-zinc-800 rounded-lg px-3 py-1.5 flex flex-wrap items-center justify-between gap-2">
+      <div class="flex flex-wrap items-center gap-2.5">
+        <span id="op-badge" class="px-2.5 py-0.5 rounded text-xs font-bold bg-[#052e16] text-emerald-400">
+          ● 정상 작동 가능 (OPERABLE)
+        </span>
+        <span id="op-detail" class="text-xs text-white">
+          기어 간섭 없음 · 씰 기밀 유지 · 요동각/압축비 정상 범위
+        </span>
+      </div>
+      <div id="op-specs" class="text-xs font-mono-num font-bold text-sky-400">
+        K=6.93 | λ=0.433 | ε_th=18.0 | 1로터=654cc (2로터 1308cc)
+      </div>
+    </section>
+
+    <section class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-1.5">
+      <div class="bg-[#0d0d0d] border border-zinc-800 rounded-lg px-2.5 py-1.5">
+        <div class="text-[10px] text-zinc-400 truncate">허리부 최대 누적 마모</div>
+        <div id="m-peak-wear" class="text-sm font-mono-num font-bold text-white mt-0.5">-- μm</div>
+      </div>
+      <div class="bg-[#0d0d0d] border border-zinc-800 rounded-lg px-2.5 py-1.5">
+        <div class="text-[10px] text-zinc-400 truncate">13B 대비 마모 저감률</div>
+        <div id="m-reduction" class="text-sm font-mono-num font-bold text-emerald-400 mt-0.5">0.00 %</div>
+      </div>
+      <div class="bg-[#0d0d0d] border border-zinc-800 rounded-lg px-2.5 py-1.5">
+        <div class="text-[10px] text-zinc-400 truncate">최대 요동각 (φ_max)</div>
+        <div id="m-phi-max" class="text-sm font-mono-num font-bold text-white mt-0.5">-- °</div>
+      </div>
+      <div class="bg-[#0d0d0d] border border-zinc-800 rounded-lg px-2.5 py-1.5">
+        <div class="text-[10px] text-zinc-400 truncate">스프링 반력 (최소 / 최대)</div>
+        <div id="m-spring" class="text-sm font-mono-num font-bold text-white mt-0.5">-- / -- N</div>
+      </div>
+      <div class="bg-[#0d0d0d] border border-zinc-800 rounded-lg px-2.5 py-1.5">
+        <div class="text-[10px] text-zinc-400 truncate">씰 기밀(누설) 상태</div>
+        <div id="m-liftoff" class="text-sm font-mono-num font-bold text-emerald-400 mt-0.5">✓ 정상 (1.8%)</div>
+      </div>
+      <div class="bg-[#0d0d0d] border border-zinc-800 rounded-lg px-2.5 py-1.5">
+        <div class="text-[10px] text-zinc-400 truncate">배기량 (13B 대비 변화)</div>
+        <div id="m-disp" class="text-sm font-mono-num font-bold text-sky-400 mt-0.5">654 cc (+0.0%)</div>
+      </div>
+      <div class="bg-[#0d0d0d] border border-zinc-800 rounded-lg px-2.5 py-1.5">
+        <div class="text-[10px] text-zinc-400 truncate">단면적(압축비) 편차</div>
+        <div id="m-comp" class="text-sm font-mono-num font-bold text-white mt-0.5">0.00 %</div>
+      </div>
+    </section>
+
+    <!-- ==================================================================== -->
+    <!-- 4. 최하단 3열 설정 및 제어 패널                                            -->
+    <!-- ==================================================================== -->
+    <section class="bg-[#0d0d0d] border border-zinc-800 rounded-lg p-3 grid grid-cols-1 lg:grid-cols-3 gap-4">
+
+      <!-- [좌측 열] 모드 선택 & 주요 실행 버튼 -->
+      <div class="flex flex-col justify-between gap-2">
+        <div>
+          <h3 class="text-xs font-bold text-white mb-1.5">수정 모드 &amp; 제어</h3>
+          <div class="flex flex-col gap-1 text-xs">
+            <label class="flex items-center gap-2 cursor-pointer text-zinc-200 hover:text-white">
+              <input type="radio" name="edit-mode" value="local_df" class="accent-sky-400" />
+              <span class="font-semibold">허리부 국부 DF 보정 전용 (13B 궤적 고정)</span>
+            </label>
+            <label class="flex items-center gap-2 cursor-pointer text-zinc-200 hover:text-white">
+              <input type="radio" name="edit-mode" value="global" checked class="accent-sky-400" />
+              <span class="font-semibold">전체 프로파일 + 국부 DF 동시 수정</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="flex flex-col gap-1.5">
+          <div class="grid grid-cols-2 gap-2">
+            <button id="btn-play"
+              class="py-1.5 rounded-md bg-zinc-900 hover:bg-zinc-800 text-white border border-zinc-700 text-xs font-bold transition">
+              ⏸ 일시정지
+            </button>
+            <button id="btn-reset"
+              class="py-1.5 rounded-md bg-zinc-900 hover:bg-zinc-800 text-white border border-zinc-700 text-xs font-bold transition">
+              ↺ 13B 기본값
+            </button>
+          </div>
+          <button id="btn-opt-standard"
+            class="w-full py-1.5 rounded-md bg-white hover:bg-zinc-200 text-black text-xs font-bold transition">
+            ⚡ 원클릭 자동 마모 최소화 최적화
+          </button>
+          <button id="btn-opt-sealed"
+            class="w-full py-1.5 rounded-md bg-[#052e16] hover:bg-[#14532d] text-emerald-400 hover:text-white border border-emerald-600 text-xs font-bold transition">
+            🛡 9,000 RPM 정상 기밀 마모 최소화
+          </button>
+        </div>
+      </div>
+
+      <!-- [중앙 열] 허리부 국부 DF 보정 & 운전 조건 슬라이더 -->
+      <div class="flex flex-col gap-2">
+        <h3 class="text-xs font-bold text-white">허리부 국부 DF 보정 &amp; 운전 조건</h3>
+
+        <div>
+          <div class="flex justify-between text-[11px] mb-0.5">
+            <span class="text-zinc-200">허리부 완화량 Δa_max (mm)</span>
+            <span id="val-delta_a" class="font-mono-num font-bold text-sky-400">0.000</span>
+          </div>
+          <input id="sl-delta_a" type="range" min="0" max="0.28" step="0.005" value="0" class="sim-slider" />
+        </div>
+
+        <div>
+          <div class="flex justify-between text-[11px] mb-0.5">
+            <span class="text-zinc-200">허리부 보정 각도 폭 σ (°)</span>
+            <span id="val-sigma" class="font-mono-num font-bold text-sky-400">42.0</span>
+          </div>
+          <input id="sl-sigma" type="range" min="15" max="85" step="1" value="42" class="sim-slider" />
+        </div>
+
+        <div>
+          <div class="flex justify-between text-[11px] mb-0.5">
+            <span class="text-zinc-200">엔진 회전수 (RPM)</span>
+            <span id="val-rpm" class="font-mono-num font-bold text-sky-400">6000</span>
+          </div>
+          <input id="sl-rpm" type="range" min="500" max="9500" step="100" value="6000" class="sim-slider" />
+        </div>
+
+        <div>
+          <div class="flex justify-between text-[11px] mb-0.5">
+            <span class="text-zinc-200">장기 누적 사이클 (×10⁶ 회)</span>
+            <span id="val-cycles_m" class="font-mono-num font-bold text-sky-400">3.0M</span>
+          </div>
+          <input id="sl-cycles_m" type="range" min="0.1" max="3.0" step="0.1" value="3.0" class="sim-slider" />
+        </div>
+      </div>
+
+      <!-- [우측 열] 전체 하우징 프로파일 슬라이더 (13B 기준) -->
+      <div class="flex flex-col gap-2">
+        <h3 class="text-xs font-bold text-white">전체 하우징 프로파일 (13B 기준)</h3>
+
+        <div>
+          <div class="flex justify-between text-[11px] mb-0.5">
+            <span class="text-zinc-200">편심량 / 이심률 e (mm)</span>
+            <span id="val-e" class="font-mono-num font-bold text-sky-400">15.00</span>
+          </div>
+          <input id="sl-e" type="range" min="8" max="20" step="0.1" value="15.0" class="sim-slider global-slider" />
+        </div>
+
+        <div>
+          <div class="flex justify-between text-[11px] mb-0.5">
+            <span class="text-zinc-200">로터 반경 R (mm)</span>
+            <span id="val-R" class="font-mono-num font-bold text-sky-400">103.95</span>
+          </div>
+          <input id="sl-R" type="range" min="80" max="125" step="0.5" value="103.95" class="sim-slider global-slider" />
+        </div>
+
+        <div>
+          <div class="flex justify-between text-[11px] mb-0.5">
+            <span class="text-zinc-200">기본 평행 이동량 a₀ (mm)</span>
+            <span id="val-a0" class="font-mono-num font-bold text-sky-400">1.05</span>
+          </div>
+          <input id="sl-a0" type="range" min="0.5" max="4.0" step="0.05" value="1.05" class="sim-slider global-slider" />
+        </div>
+
+        <div>
+          <div class="flex justify-between text-[11px] mb-0.5">
+            <span class="text-zinc-200">에이펙스 씰 팁 반경 r_u (mm)</span>
+            <span id="val-r_u" class="font-mono-num font-bold text-sky-400">1.00</span>
+          </div>
+          <input id="sl-r_u" type="range" min="1.0" max="3.5" step="0.05" value="1.0" class="sim-slider global-slider" />
+        </div>
+      </div>
+
+    </section>
+  </main>
+
+  <script>
+  (() => {
+    "use strict";
+
+    // =========================================================================
+    // 1. Inferno Colormap (Matplotlib Inferno 11-stop RGB LUT)
+    // =========================================================================
+    const INFERNO_STOPS = [
+      [0, 0, 4],
+      [27, 12, 65],
+      [74, 12, 107],
+      [120, 28, 109],
+      [165, 44, 96],
+      [207, 68, 70],
+      [237, 105, 37],
+      [251, 155, 6],
+      [247, 209, 61],
+      [252, 255, 164]
+    ];
+
+    function infernoRGB(t) {
+      const x = Math.max(0, Math.min(1, t)) * (INFERNO_STOPS.length - 1);
+      const i = Math.floor(x);
+      const f = x - i;
+      const c0 = INFERNO_STOPS[i];
+      const c1 = INFERNO_STOPS[Math.min(i + 1, INFERNO_STOPS.length - 1)];
+      return [
+        Math.round(c0[0] + (c1[0] - c0[0]) * f),
+        Math.round(c0[1] + (c1[1] - c0[1]) * f),
+        Math.round(c0[2] + (c1[2] - c0[2]) * f)
+      ];
+    }
+
+    function infernoCSS(t, alpha = 1) {
+      const [r, g, b] = infernoRGB(t);
+      return alpha >= 1 ? `rgb(${r},${g},${b})` : `rgba(${r},${g},${b},${alpha})`;
+    }
+
+    // =========================================================================
+    // 2. 반켈 엔진 기하학·동역학·혼합윤활 마모 물리 엔진 (WankelWearModel)
+    //    Python 버전의 모든 수식과 상수를 1:1 정밀 이식
+    // =========================================================================
+    class WankelWearModel {
+      static PRESET_13B = {
+        e: 15.0,          // 편심량 (mm)
+        R: 103.95,        // 로터 중심-꼭짓점 거리 (mm)
+        a0: 1.05,         // 기본 평행 이동량 (mm)
+        width: 80.0,      // 하우징 폭 b (mm)
+        b_u: 2.0,         // 에이펙스 씰 두께 (mm)
+        r_u: 1.0,         // 에이펙스 씰 팁 반경 (mm)
+        rpm: 6000.0,      // 출력축 회전수 (rpm)
+        delta_a: 0.0,     // 국부 DF 허리부 최대 보정량 Δa_max (mm)
+        sigma: 42.0,      // 국부 DF 허리부 보정 각도 폭 σ (deg)
+        cycles: 3.0e6     // 장기 누적 사이클 수 (회)
+      };
+
+      constructor(nPoints = 720) {
+        this.nPoints = nPoints;
+        this.alphaDeg = new Float64Array(nPoints);
+        this.alphaRad = new Float64Array(nPoints);
+        const stepDeg = 1080.0 / nPoints;
+        for (let i = 0; i < nPoints; i++) {
+          this.alphaDeg[i] = i * stepDeg;
+          this.alphaRad[i] = (this.alphaDeg[i] * Math.PI) / 180.0;
+        }
+        this.dAlpha = this.alphaRad[1] - this.alphaRad[0];
+
+        // 에이펙스 씰 및 스프링 물리 상수 (Üner & Cihan 2025 & Jiang et al. 2018)
+        this.sealMass = 0.0085;       // kg
+        this.hMaxBase = 3.275;        // mm
+        this.kSpring = 108.7;         // N/mm
+        this.hSpringFree = 3.5234;    // mm
+        this.E_eff = 135e9;           // Pa
+        this.kArchard = 1.85e-14;     // m^2/N
+
+        // 사전 계산: 가스 압력 배열
+        const { pLead, pTrail } = this._computeGasPressures();
+        this.pLead = pLead;
+        this.pTrail = pTrail;
+      }
+
+      static periodicDistDeg(aDeg, centerDeg, period = 1080.0) {
+        let diff = Math.abs(aDeg - centerDeg) % period;
+        return Math.min(diff, period - diff);
+      }
+
+      _computeGasPressures() {
+        const pAtm = 0.101e6;
+        const pPeak = 3.8e6;
+        const pLead = new Float64Array(this.nPoints);
+        const pTrail = new Float64Array(this.nPoints);
+        for (let i = 0; i < this.nPoints; i++) {
+          const dLead = WankelWearModel.periodicDistDeg(this.alphaDeg[i], 105.0);
+          const dTrail = WankelWearModel.periodicDistDeg(this.alphaDeg[i], 465.0);
+          pLead[i] = pAtm + (pPeak - pAtm) * Math.exp(-0.5 * (dLead / 52.0) ** 2);
+          pTrail[i] = pAtm + (pPeak - pAtm) * Math.exp(-0.5 * (dTrail / 52.0) ** 2);
+        }
+        return { pLead, pTrail };
+      }
+
+      static theoreticalCompressionRatio(K) {
+        if (K <= 3.05) return 0.0;
+        const phiM = Math.asin(3.0 / K);
+        const termBase =
+          2.0 * K * Math.cos(phiM) +
+          ((2.0 / 9.0) * K * K + 4.0) * phiM +
+          Math.PI / 3.0;
+        const termStroke = ((3.0 * Math.sqrt(3.0)) / 2.0) * K;
+        const denom = termBase - termStroke;
+        if (denom <= 1e-6) return 0.0;
+        return (termBase + termStroke) / denom;
+      }
+
+      simulate(params) {
+        const N = this.nPoints;
+        const e = Number(params.e);
+        const R = Number(params.R);
+        const a0 = Number(params.a0);
+        const width = Number(params.width ?? 80.0);
+        const b_u = Number(params.b_u ?? 2.0);
+        const r_u = Number(params.r_u);
+        const rpm = Number(params.rpm);
+        const delta_a = Number(params.delta_a);
+        const sigma = Math.max(5.0, Number(params.sigma));
+        const cycles = Math.max(1.0, Number(params.cycles));
+
+        const omega = (rpm * 2.0 * Math.PI) / 60.0;
+        const K_ratio = R / Math.max(e, 1e-6);
+        const lambda_hsieh = 3.0 / Math.max(K_ratio, 1e-6);
+
+        const x0 = new Float64Array(N);
+        const y0 = new Float64Array(N);
+        const Xh = new Float64Array(N);
+        const Yh = new Float64Array(N);
+        const aDf = new Float64Array(N);
+
+        // 1 & 2. 기본 에피트로코이드 궤적 + 국부 편차 함수(DF)
+        for (let i = 0; i < N; i++) {
+          const a = this.alphaRad[i];
+          const a3 = a / 3.0;
+          const ca = Math.cos(a), sa = Math.sin(a);
+          const ca3 = Math.cos(a3), sa3 = Math.sin(a3);
+
+          x0[i] = e * ca + R * ca3;
+          y0[i] = e * sa + R * sa3;
+
+          const dx0 = -e * sa - (R / 3.0) * sa3;
+          const dy0 = e * ca + (R / 3.0) * ca3;
+          const normT0 = Math.hypot(dx0, dy0);
+          const n0x = dy0 / normT0;
+          const n0y = -dx0 / normT0;
+
+          const dW1 = WankelWearModel.periodicDistDeg(this.alphaDeg[i], 270.0);
+          const dW2 = WankelWearModel.periodicDistDeg(this.alphaDeg[i], 810.0);
+          const wWin =
+            Math.exp(-0.5 * (dW1 / sigma) ** 2) +
+            Math.exp(-0.5 * (dW2 / sigma) ** 2);
+          const adf = a0 + delta_a * wWin;
+          aDf[i] = adf;
+          Xh[i] = x0[i] + adf * n0x;
+          Yh[i] = y0[i] + adf * n0y;
+        }
+
+        // 3~7. 수치 미분, 곡률, 요동각, 스프링 반력, 관성력, 가스 배압
+        const nhx = new Float64Array(N);
+        const nhy = new Float64Array(N);
+        const kappaSigned = new Float64Array(N);
+        const phiRad = new Float64Array(N);
+        const phiDeg = new Float64Array(N);
+        const deltaH = new Float64Array(N);
+        const F_spring = new Float64Array(N);
+        const F_gas = new Float64Array(N);
+        const F_radial_raw = new Float64Array(N);
+        const U_slide = new Float64Array(N);
+
+        const twoDa = 2.0 * this.dAlpha;
+        const da2 = this.dAlpha * this.dAlpha;
+        const e_m = e * 1e-3;
+        const R_m = R * 1e-3;
+        const sealAreaM2 = (b_u * 1e-3) * (width * 1e-3);
+
+        let phiMaxDeg = 0.0;
+        let F_radial_min = Infinity;
+        let F_spring_min = Infinity;
+        let F_spring_max = -Infinity;
+        let deltaH_min = Infinity;
+        let liftoffCount = 0;
+        let maxNegForce = 0.0;
+
+        for (let i = 0; i < N; i++) {
+          const ip = (i + 1) % N;
+          const im = (i - 1 + N) % N;
+
+          const dXh = (Xh[ip] - Xh[im]) / twoDa;
+          const dYh = (Yh[ip] - Yh[im]) / twoDa;
+          const ddXh = (Xh[ip] - 2.0 * Xh[i] + Xh[im]) / da2;
+          const ddYh = (Yh[ip] - 2.0 * Yh[i] + Yh[im]) / da2;
+
+          const spd = Math.hypot(dXh, dYh);
+          const nx = dYh / spd;
+          const ny = -dXh / spd;
+          nhx[i] = nx;
+          nhy[i] = ny;
+
+          const cross = dXh * ddYh - dYh * ddXh;
+          kappaSigned[i] = -cross / (spd * spd * spd + 1e-12);
+
+          const a = this.alphaRad[i];
+          const urx = Math.cos(a / 3.0);
+          const ury = Math.sin(a / 3.0);
+          const pr = Math.atan2(urx * ny - ury * nx, urx * nx + ury * ny);
+          const pd = (pr * 180.0) / Math.PI;
+          phiRad[i] = pr;
+          phiDeg[i] = pd;
+          if (Math.abs(pd) > phiMaxDeg) phiMaxDeg = Math.abs(pd);
+
+          const reliefMm = aDf[i] - a0;
+          const tanPhiClamped = Math.min(1.35, Math.abs(Math.tan(pr)));
+          const dh =
+            this.hMaxBase +
+            reliefMm / Math.max(Math.cos(pr), 0.35) -
+            r_u * (1.0 - Math.cos(tanPhiClamped));
+          deltaH[i] = dh;
+          if (dh < deltaH_min) deltaH_min = dh;
+
+          const fs = this.kSpring * (this.hSpringFree - dh);
+          F_spring[i] = fs;
+          if (fs < F_spring_min) F_spring_min = fs;
+          if (fs > F_spring_max) F_spring_max = fs;
+
+          const cos2a3 = Math.cos((2.0 * a) / 3.0);
+          U_slide[i] =
+            (omega / 3.0) *
+            Math.sqrt(9.0 * e_m * e_m + R_m * R_m + 6.0 * e_m * R_m * cos2a3);
+          const fCent =
+            ((this.sealMass * omega * omega) / 9.0) * (R_m + 9.0 * e_m * cos2a3);
+
+          const pL = this.pLead[i];
+          const pT = this.pTrail[i];
+          const pGroove = pL >= pT ? 0.8 * pL : 0.6 * pT;
+          const pTopEff = 0.5 * (pL + pT);
+          const fg = Math.max(0.0, (pGroove - pTopEff) * sealAreaM2 * 0.35);
+          F_gas[i] = fg;
+
+          const fRad = fs + fCent + fg;
+          F_radial_raw[i] = fRad;
+          if (fRad < F_radial_min) F_radial_min = fRad;
+          if (fRad <= 0.5) {
+            liftoffCount++;
+            const neg = 0.5 - fRad;
+            if (neg > maxNegForce) maxNegForce = neg;
+          }
+        }
+
+        // 8. 엔진 기밀 누설(블로바이) 및 작동 가능성 판정
+        const eps_th = WankelWearModel.theoreticalCompressionRatio(K_ratio);
+        const inoperable_reasons = [];
+        const leakage_reasons = [];
+
+        const rpmFactor = (6000.0 / Math.max(rpm, 500.0)) ** 0.65;
+        const baseLeakPct = 1.8 * rpmFactor;
+
+        const liftoffFrac = liftoffCount / N;
+        let dynLiftoffLeak = 0.0;
+        if (liftoffFrac > 0.0) {
+          dynLiftoffLeak =
+            (12.0 + 1.8 * maxNegForce) * (0.35 + 2.5 * liftoffFrac) * rpmFactor;
+          leakage_reasons.push(
+            `동적 씰 들뜸 (F_rad=${F_radial_min.toFixed(1)}N≤0.5N, Yamamoto 1981)`
+          );
+        }
+
+        let springLeak = 0.0;
+        if (F_spring_min <= 2.0) {
+          springLeak = (10.0 + 2.2 * (2.0 - F_spring_min)) * rpmFactor;
+          leakage_reasons.push(
+            `스프링 예압 상실 (F_s=${F_spring_min.toFixed(1)}N≤2.0N, Üner 2025)`
+          );
+        } else if (F_spring_min < 5.0) {
+          springLeak = 1.1 * (5.0 - F_spring_min) * rpmFactor;
+          leakage_reasons.push(
+            `스프링 예압 약화 (F_s=${F_spring_min.toFixed(1)}N<5.0N, Üner 2025)`
+          );
+        }
+
+        const maxContactOffset = r_u * Math.sin((phiMaxDeg * Math.PI) / 180.0);
+        const edgeLoadingActive = maxContactOffset > 0.5 * b_u + 1e-6;
+        let edgeLeak = 0.0;
+        if (edgeLoadingActive) {
+          const edgeRatio =
+            (maxContactOffset - 0.5 * b_u) / Math.max(0.5 * b_u, 1e-6);
+          edgeLeak = 2.8 * (edgeRatio ** 1.3) * rpmFactor;
+          leakage_reasons.push(
+            `모서리 접촉 누설 (2r_u·sinφ=${(2 * maxContactOffset).toFixed(2)}mm>b_u, Pennock 1997)`
+          );
+        }
+
+        let reliefLeak = 0.0;
+        if (delta_a > 0.22) {
+          reliefLeak = 18.0 * ((delta_a - 0.22) ** 1.4) * rpmFactor;
+          leakage_reasons.push(
+            `코너 씰 단차 누설 (Δa=${delta_a.toFixed(3)}mm>0.22mm, Picard 2016)`
+          );
+        }
+
+        const leakage_pct = Math.max(
+          0.5,
+          Math.min(
+            95.0,
+            baseLeakPct + dynLiftoffLeak + springLeak + edgeLeak + reliefLeak
+          )
+        );
+
+        const seal_liftoff = F_spring_min <= 2.0 || F_radial_min <= 0.5;
+        let leakage_status = "sealed";
+        if (seal_liftoff || leakage_pct >= 12.0) {
+          leakage_status = "severe";
+        } else if (
+          F_spring_min < 5.0 ||
+          F_radial_min < 5.0 ||
+          edgeLoadingActive ||
+          leakage_pct >= 4.5
+        ) {
+          leakage_status = "marginal";
+        }
+
+        if (K_ratio <= 5.0) {
+          inoperable_reasons.push(`페이징 기어 간섭 (K=${K_ratio.toFixed(2)}≤5.0)`);
+        } else if (K_ratio > 12.0) {
+          inoperable_reasons.push(`과도한 편평 연소실·소염 (K=${K_ratio.toFixed(2)}>12.0)`);
+        }
+        if (phiMaxDeg >= 35.0) {
+          inoperable_reasons.push(`요동각 쐐기 고착 (φ=${phiMaxDeg.toFixed(1)}°≥35°)`);
+        }
+        if (seal_liftoff || leakage_pct >= 12.0) {
+          inoperable_reasons.push("연소실 기밀 X");
+        }
+        if (r_u < 0.5 * b_u - 1e-6) {
+          inoperable_reasons.push(`팁 반경 부족 (r_u<${(0.5 * b_u).toFixed(1)}mm)`);
+        }
+        if (deltaH_min <= 0.5) {
+          inoperable_reasons.push(`그루브 바닥 충돌 (Δh_min=${deltaH_min.toFixed(2)}mm)`);
+        }
+        if (eps_th < 11.5) {
+          inoperable_reasons.push(`압축비 부족 (ε_th=${eps_th.toFixed(1)}<11.5)`);
+        }
+
+        const operable = inoperable_reasons.length === 0;
+
+        // 9 & 10. 혼합 윤활 접촉압 및 Archard 1사이클 국부 마모 깊이
+        const mu_f = 0.08;
+        const B_m = width * 1e-3;
+        const wear_1cycle_um = new Float64Array(N);
+        let peakWaist1Cycle = 0.0;
+        let sumWaist1Cycle = 0.0;
+        let waistCount = 0;
+
+        for (let i = 0; i < N; i++) {
+          const fNet = Math.max(0.0, F_radial_raw[i]);
+          const pr = phiRad[i];
+          const wedg = Math.max(Math.cos(pr) - mu_f * Math.sin(pr), 0.25);
+          const fNorm = fNet / wedg;
+
+          const invReq = Math.max(0.05, 1.0 / r_u + kappaSigned[i]);
+          const ReqM = (1.0 / invReq) * 1e-3;
+
+          const hydroIdx =
+            ((U_slide[i] / 15.0) ** 0.7) * ((ReqM / 1.0e-3) ** 0.43);
+          const gammaAsp = Math.max(
+            0.34,
+            Math.min(0.76, 0.56 - 0.12 * Math.tanh(hydroIdx - 1.0))
+          );
+
+          const cOff = r_u * Math.abs(Math.sin(pr));
+          const eExc = Math.max(0.0, cOff - 0.5 * b_u) / Math.max(0.5 * b_u, 1e-6);
+          const edgePen = 1.0 + 1.85 * (eExc ** 1.6);
+          const swingPen = 1.0 + 0.55 * (Math.abs(phiDeg[i]) / 25.38) ** 2;
+
+          const curvFactor = 1.0 + 22.0 * Math.max(0.0, kappaSigned[i]);
+          const lineLoad = fNorm / Math.max(B_m, 1e-6);
+          const w1 =
+            this.kArchard *
+            lineLoad *
+            gammaAsp *
+            curvFactor *
+            swingPen *
+            edgePen *
+            3.0 *
+            1e6;
+          wear_1cycle_um[i] = w1;
+
+          const d1 = WankelWearModel.periodicDistDeg(this.alphaDeg[i], 270.0);
+          const d2 = WankelWearModel.periodicDistDeg(this.alphaDeg[i], 810.0);
+          if (d1 <= 55.0 || d2 <= 55.0) {
+            if (w1 > peakWaist1Cycle) peakWaist1Cycle = w1;
+            sumWaist1Cycle += w1;
+            waistCount++;
+          }
+        }
+
+        // 11. 장기 누적 마모 & 길들이기(Running-in) 추이
+        const nRun = 4.0e5;
+        const nGrid = 40;
+        const cycle_grid = new Float64Array(nGrid);
+        const peak_wear_over_time = new Float64Array(nGrid);
+        for (let i = 0; i < nGrid; i++) {
+          const cyc = (cycles * i) / (nGrid - 1);
+          cycle_grid[i] = cyc;
+          const eff = 0.62 * cyc + 0.38 * nRun * (1.0 - Math.exp(-cyc / nRun));
+          peak_wear_over_time[i] = peakWaist1Cycle * eff;
+        }
+        const effTotal =
+          0.62 * cycles + 0.38 * nRun * (1.0 - Math.exp(-cycles / nRun));
+
+        const wear_cum_um = new Float64Array(N);
+        let peak_total_wear_um = 0.0;
+        for (let i = 0; i < N; i++) {
+          const wc = wear_1cycle_um[i] * effTotal;
+          wear_cum_um[i] = wc;
+          if (wc > peak_total_wear_um) peak_total_wear_um = wc;
+        }
+        const peak_waist_wear_um = peakWaist1Cycle * effTotal;
+        const mean_waist_wear_um = (sumWaist1Cycle / Math.max(1, waistCount)) * effTotal;
+
+        // 12. 하우징 단면적 및 정밀 작동실 행정체적(배기량) 수치 적분
+        let sumArea = 0.0;
+        const segArea = new Float64Array(N);
+        for (let i = 0; i < N; i++) {
+          const ip = (i + 1) % N;
+          const sa = 0.5 * (Xh[i] * Yh[ip] - Xh[ip] * Yh[i]);
+          segArea[i] = sa;
+          sumArea += sa;
+        }
+        const area_housing = Math.abs(sumArea);
+
+        const span = Math.floor(N / 3);
+        const csSeg = new Float64Array(2 * N + 1);
+        for (let i = 0; i < 2 * N; i++) {
+          csSeg[i + 1] = csSeg[i] + segArea[i % N];
+        }
+        let maxChamber = -Infinity;
+        let minChamber = Infinity;
+        for (let i = 0; i < N; i++) {
+          const j = (i + span) % N;
+          const arcA = csSeg[i + span] - csSeg[i];
+          const closeA =
+            0.5 *
+            ((Xh[j] * y0[j] - x0[j] * Yh[j]) +
+              (x0[j] * y0[i] - x0[i] * y0[j]) +
+              (x0[i] * Yh[i] - Xh[i] * y0[i]));
+          const chA = arcA + closeA;
+          if (chA > maxChamber) maxChamber = chA;
+          if (chA < minChamber) minChamber = chA;
+        }
+        const V_H_cc = ((maxChamber - minChamber) * width) / 1000.0;
+
+        return {
+          alpha_deg: this.alphaDeg,
+          Xh, Yh, x0, y0, nhx, nhy,
+          kappa_signed: kappaSigned,
+          phi_deg: phiDeg,
+          delta_h: deltaH,
+          F_spring, F_gas, F_radial_raw,
+          wear_1cycle_um, wear_cum_um,
+          cycle_grid, peak_wear_over_time,
+          peak_waist_wear_um, mean_waist_wear_um, peak_total_wear_um,
+          phi_max_deg: phiMaxDeg,
+          F_spring_min, F_spring_max, F_radial_min,
+          seal_liftoff, leakage_pct, leakage_status, leakage_reasons,
+          leakage_breakdown: {
+            base_leak_pct: baseLeakPct,
+            dyn_liftoff_leak: dynLiftoffLeak,
+            spring_leak: springLeak,
+            edge_leak: edgeLeak,
+            relief_leak: reliefLeak,
+            liftoff_frac_pct: liftoffFrac * 100.0,
+            max_contact_width_mm: 2.0 * maxContactOffset,
+            rpm_factor: rpmFactor
+          },
+          edge_loading_active: edgeLoadingActive,
+          operable, inoperable_reasons,
+          eps_th, lambda_hsieh, area_housing, V_H_cc, K_ratio
+        };
+      }
+
+      checkRpmEnvelope(res, params, rpmMin = 500.0, rpmMax = 9000.0) {
+        const N = this.nPoints;
+        const e_m = Number(params.e) * 1e-3;
+        const R_m = Number(params.R) * 1e-3;
+        const b_u = Number(params.b_u ?? 2.0);
+        const r_u = Number(params.r_u);
+        const delta_a = Number(params.delta_a);
+
+        const F_spring = res.F_spring;
+        const F_gas = res.F_gas;
+        const F_spring_min = res.F_spring_min;
+
+        const maxContactOffset = r_u * Math.sin((res.phi_max_deg * Math.PI) / 180.0);
+        const edgeActive = maxContactOffset > 0.5 * b_u + 1e-6;
+
+        let worst_f_rad_min = Infinity;
+        let worst_leak_pct = 0.0;
+        let f_rad_min_9000 = Infinity;
+        let leak_9000 = 0.0;
+        let all_operable = Boolean(res.operable);
+
+        for (const rTest of [rpmMin, rpmMax]) {
+          const omegaT = (rTest * 2.0 * Math.PI) / 60.0;
+          const coeff = (this.sealMass * omegaT * omegaT) / 9.0;
+          let fRadMinT = Infinity;
+          let liftoffCnt = 0;
+          let maxNeg = 0.0;
+
+          for (let i = 0; i < N; i++) {
+            const fCentT = coeff * (R_m + 9.0 * e_m * Math.cos((2.0 * this.alphaRad[i]) / 3.0));
+            const fRadT = F_spring[i] + fCentT + F_gas[i];
+            if (fRadT < fRadMinT) fRadMinT = fRadT;
+            if (fRadT <= 0.5) {
+              liftoffCnt++;
+              const neg = 0.5 - fRadT;
+              if (neg > maxNeg) maxNeg = neg;
+            }
+          }
+
+          if (fRadMinT < worst_f_rad_min) worst_f_rad_min = fRadMinT;
+          if (rTest === rpmMax) f_rad_min_9000 = fRadMinT;
+
+          const rpmFac = (6000.0 / Math.max(rTest, 500.0)) ** 0.65;
+          let leakT = 1.8 * rpmFac;
+          const liftoffFrac = liftoffCnt / N;
+          if (liftoffFrac > 0.0) {
+            leakT += (12.0 + 1.8 * maxNeg) * (0.35 + 2.5 * liftoffFrac) * rpmFac;
+          }
+          if (F_spring_min <= 2.0) {
+            leakT += (10.0 + 2.2 * (2.0 - F_spring_min)) * rpmFac;
+          } else if (F_spring_min < 5.0) {
+            leakT += 1.1 * (5.0 - F_spring_min) * rpmFac;
+          }
+          if (edgeActive) {
+            const edgeRatio = (maxContactOffset - 0.5 * b_u) / Math.max(0.5 * b_u, 1e-6);
+            leakT += 2.8 * (edgeRatio ** 1.3) * rpmFac;
+          }
+          if (delta_a > 0.22) {
+            leakT += 18.0 * ((delta_a - 0.22) ** 1.4) * rpmFac;
+          }
+
+          leakT = Math.max(0.5, Math.min(95.0, leakT));
+          if (leakT > worst_leak_pct) worst_leak_pct = leakT;
+          if (rTest === rpmMax) leak_9000 = leakT;
+
+          if (fRadMinT <= 0.5 || F_spring_min <= 2.0 || leakT >= 12.0) {
+            all_operable = false;
+          }
+        }
+
+        const sealed_at_9000 =
+          all_operable &&
+          F_spring_min >= 5.0 &&
+          f_rad_min_9000 >= 5.0 &&
+          !edgeActive &&
+          leak_9000 < 4.5;
+
+        return {
+          all_operable,
+          sealed_at_9000,
+          worst_f_rad_min,
+          f_rad_min_9000,
+          leak_9000,
+          worst_leak_pct
+        };
+      }
+
+      getRotorPolygon(alphaRad, e, R, segPerFlank = 24) {
+        const apexes = [];
+        for (let k = 0; k < 3; k++) {
+          const ak = alphaRad + 2.0 * Math.PI * k;
+          apexes.push([
+            e * Math.cos(ak) + R * Math.cos(ak / 3.0),
+            e * Math.sin(ak) + R * Math.sin(ak / 3.0)
+          ]);
+        }
+        const cx = e * Math.cos(alphaRad);
+        const cy = e * Math.sin(alphaRad);
+        const bulge = Math.max(0.0, 0.85 * (R - 4.0 * e));
+        const pts = [];
+
+        for (let k = 0; k < 3; k++) {
+          const p1 = apexes[k];
+          const p2 = apexes[(k + 1) % 3];
+          const mx = 0.5 * (p1[0] + p2[0]);
+          const my = 0.5 * (p1[1] + p2[1]);
+          let ox = mx - cx, oy = my - cy;
+          const ol = Math.hypot(ox, oy) + 1e-9;
+          ox /= ol; oy /= ol;
+          const ctrlX = mx + bulge * ox;
+          const ctrlY = my + bulge * oy;
+
+          for (let s = 0; s < segPerFlank; s++) {
+            const t = s / segPerFlank;
+            const mt = 1.0 - t;
+            pts.push([
+              mt * mt * p1[0] + 2 * mt * t * ctrlX + t * t * p2[0],
+              mt * mt * p1[1] + 2 * mt * t * ctrlY + t * t * p2[1]
+            ]);
+          }
+        }
+        return { pts, apexes, center: [cx, cy] };
+      }
+
+      static buildGearPolygon(cx, cy, rPitch, nTeeth, toothDepth, angleOffset = 0.0, internal = false) {
+        const ptsPerTooth = 4;
+        const total = nTeeth * ptsPerTooth;
+        const rOut = rPitch + (internal ? 0.0 : toothDepth * 0.5);
+        const rIn = rPitch - (internal ? toothDepth : toothDepth * 0.5);
+        const poly = new Array(total);
+        for (let i = 0; i < nTeeth; i++) {
+          for (let j = 0; j < 4; j++) {
+            const idx = i * 4 + j;
+            const ang = (idx / total) * 2.0 * Math.PI + angleOffset;
+            const isOut = internal ? (j === 0 || j === 3) : (j === 1 || j === 2);
+            const r = isOut ? rOut : rIn;
+            poly[idx] = [cx + r * Math.cos(ang), cy + r * Math.sin(ang)];
+          }
+        }
+        return poly;
+      }
+
+      static interpPeriodic(angleDeg, arr, period = 1080.0) {
+        const N = arr.length;
+        let a = ((angleDeg % period) + period) % period;
+        const fIdx = (a / period) * N;
+        const i0 = Math.floor(fIdx) % N;
+        const i1 = (i0 + 1) % N;
+        const frac = fIdx - Math.floor(fIdx);
+        return arr[i0] + (arr[i1] - arr[i0]) * frac;
+      }
+
+      getChamberPolygonsVis(alphaRad, res, e, R) {
+        const cxVis = e * Math.sin(alphaRad);
+        const cyVis = e * Math.cos(alphaRad);
+        const apexesVis = [];
+        for (let k = 0; k < 3; k++) {
+          const ak = alphaRad + 2.0 * Math.PI * k;
+          const ax = e * Math.cos(ak) + R * Math.cos(ak / 3.0);
+          const ay = e * Math.sin(ak) + R * Math.sin(ak / 3.0);
+          apexesVis.push([ay, ax]);
+        }
+
+        const bulge = Math.max(0.0, 0.85 * (R - 4.0 * e));
+        const alphaDegNow = (((alphaRad * 180.0) / Math.PI) % 1080.0 + 1080.0) % 1080.0;
+        const chambers = [];
+
+        for (let k = 0; k < 3; k++) {
+          const aStart = (alphaDegNow + 360.0 * k) % 1080.0;
+          const poly = [];
+          const nArc = 36;
+          for (let s = 0; s <= nArc; s++) {
+            const ang = (aStart + (360.0 * s) / nArc) % 1080.0;
+            poly.push([
+              WankelWearModel.interpPeriodic(ang, res.Yh),
+              WankelWearModel.interpPeriodic(ang, res.Xh)
+            ]);
+          }
+
+          const p1 = apexesVis[k];
+          const p2 = apexesVis[(k + 1) % 3];
+          const mx = 0.5 * (p1[0] + p2[0]);
+          const my = 0.5 * (p1[1] + p2[1]);
+          let ox = mx - cxVis, oy = my - cyVis;
+          const ol = Math.hypot(ox, oy) + 1e-9;
+          ox /= ol; oy /= ol;
+          const ctrlX = mx + bulge * ox;
+          const ctrlY = my + bulge * oy;
+
+          const nFlank = 18;
+          for (let s = nFlank; s >= 0; s--) {
+            const t = s / nFlank;
+            const mt = 1.0 - t;
+            poly.push([
+              mt * mt * p1[0] + 2 * mt * t * ctrlX + t * t * p2[0],
+              mt * mt * p1[1] + 2 * mt * t * ctrlY + t * t * p2[1]
+            ]);
+          }
+
+          const midAngle = (aStart + 180.0) % 1080.0;
+          chambers.push({ poly, midAngle });
+        }
+        return { chambers, apexesVis, centerVis: [cxVis, cyVis] };
+      }
+    }
+
+    // =========================================================================
+    // 3. Nelder-Mead Simplex Optimizer (Pure JS, matching SciPy behavior)
+    // =========================================================================
+    function nelderMead(fn, x0, maxIter = 300, xatol = 1e-4, fatol = 1e-5) {
+      const n = x0.length;
+      const simplex = [x0.slice()];
+      for (let i = 0; i < n; i++) {
+        const pt = x0.slice();
+        pt[i] = pt[i] !== 0 ? pt[i] * 1.05 : 0.0025;
+        simplex.push(pt);
+      }
+      const fvals = simplex.map((p) => fn(p));
+
+      for (let iter = 0; iter < maxIter; iter++) {
+        // Sort vertices by objective value
+        const order = fvals.map((v, i) => i).sort((a, b) => fvals[a] - fvals[b]);
+        const sSorted = order.map((i) => simplex[i]);
+        const fSorted = order.map((i) => fvals[i]);
+        for (let i = 0; i <= n; i++) {
+          simplex[i] = sSorted[i];
+          fvals[i] = fSorted[i];
+        }
+
+        // Convergence check
+        let maxDx = 0;
+        let maxDf = 0;
+        for (let i = 1; i <= n; i++) {
+          maxDf = Math.max(maxDf, Math.abs(fvals[i] - fvals[0]));
+          for (let j = 0; j < n; j++) {
+            maxDx = Math.max(maxDx, Math.abs(simplex[i][j] - simplex[0][j]));
+          }
+        }
+        if (maxDx <= xatol && maxDf <= fatol) break;
+
+        // Centroid of best n points
+        const centroid = new Array(n).fill(0);
+        for (let i = 0; i < n; i++) {
+          for (let j = 0; j < n; j++) centroid[j] += simplex[i][j] / n;
+        }
+
+        const worst = simplex[n];
+        // Reflection
+        const xr = centroid.map((c, j) => c + (c - worst[j]));
+        const fr = fn(xr);
+
+        if (fr < fvals[0]) {
+          // Expansion
+          const xe = centroid.map((c, j) => c + 2.0 * (xr[j] - c));
+          const fe = fn(xe);
+          if (fe < fr) {
+            simplex[n] = xe;
+            fvals[n] = fe;
+          } else {
+            simplex[n] = xr;
+            fvals[n] = fr;
+          }
+        } else if (fr < fvals[n - 1]) {
+          simplex[n] = xr;
+          fvals[n] = fr;
+        } else {
+          // Contraction
+          const xc =
+            fr < fvals[n]
+              ? centroid.map((c, j) => c + 0.5 * (xr[j] - c))
+              : centroid.map((c, j) => c + 0.5 * (worst[j] - c));
+          const fc = fn(xc);
+          if (fc < Math.min(fr, fvals[n])) {
+            simplex[n] = xc;
+            fvals[n] = fc;
+          } else {
+            // Shrink
+            for (let i = 1; i <= n; i++) {
+              simplex[i] = simplex[0].map((b, j) => b + 0.5 * (simplex[i][j] - b));
+              fvals[i] = fn(simplex[i]);
+            }
+          }
+        }
+      }
+      return { x: simplex[0], fun: fvals[0] };
+    }
+
+    // =========================================================================
+    // 4. 애플리케이션 상태 & DOM 요소 바인딩
+    // =========================================================================
+    const model = new WankelWearModel(720);
+    const baselineParams = { ...WankelWearModel.PRESET_13B };
+    let baselineRes = model.simulate(baselineParams);
+    let currentRes = baselineRes;
+
+    const state = {
+      activeTab: "engine",
+      mode: "global",
+      isPlaying: true,
+      isOptimizing: false,
+      animAngleDeg: 900.0,
+      lastOptInfo: null,
+      rpmSweepDirty: true,
+      mesh3dDirty: true,
+      params: {
+        e: baselineParams.e,
+        R: baselineParams.R,
+        a0: baselineParams.a0,
+        r_u: baselineParams.r_u,
+        rpm: baselineParams.rpm,
+        delta_a: baselineParams.delta_a,
+        sigma: baselineParams.sigma,
+        cycles_m: baselineParams.cycles / 1e6
+      }
+    };
+
+    const SLIDER_FMT = {
+      delta_a: (v) => v.toFixed(3),
+      sigma: (v) => v.toFixed(1),
+      rpm: (v) => Math.round(v).toString(),
+      cycles_m: (v) => `${v.toFixed(1)}M`,
+      e: (v) => v.toFixed(2),
+      R: (v) => v.toFixed(2),
+      a0: (v) => v.toFixed(2),
+      r_u: (v) => v.toFixed(2)
+    };
+
+    function getCurrentSimParams() {
+      return {
+        ...WankelWearModel.PRESET_13B,
+        e: state.params.e,
+        R: state.params.R,
+        a0: state.params.a0,
+        r_u: state.params.r_u,
+        rpm: state.params.rpm,
+        delta_a: state.params.delta_a,
+        sigma: state.params.sigma,
+        cycles: state.params.cycles_m * 1e6
+      };
+    }
+
+    function strokeColorAndName(midDeg) {
+      const m = ((midDeg % 1080.0) + 1080.0) % 1080.0;
+      if (m >= 810.0 || m < 10.0) return { color: "#38bdf8", alpha: 0.42, name: "INTAKE" };
+      if (m < 250.0) return { color: "#4f46e5", alpha: 0.58, name: "COMPRESSION" };
+      if (m < 540.0) return { color: "#f97316", alpha: 0.68, name: "IGNITION" };
+      return { color: "#71717a", alpha: 0.46, name: "EXHAUST" };
+    }
+
+    // Helper for Retina HiDPI Canvas sizing
+    function prepCanvas(canvas) {
+      const rect = canvas.parentElement.getBoundingClientRect();
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const w = Math.max(100, Math.floor(rect.width));
+      const h = Math.max(100, Math.floor(rect.height));
+      if (canvas.width !== Math.floor(w * dpr) || canvas.height !== Math.floor(h * dpr)) {
+        canvas.width = Math.floor(w * dpr);
+        canvas.height = Math.floor(h * dpr);
+      }
+      const ctx = canvas.getContext("2d");
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      return { ctx, w, h };
+    }
+
+    // =========================================================================
+    // 5. [뷰 A] 2D 엔진 실시간 시뮬레이션 렌더러 (Canvas 2D)
+    // =========================================================================
+    const canvas2d = document.getElementById("canvas-2d");
+
+    function render2DFrame() {
+      const { ctx, w, h } = prepCanvas(canvas2d);
+      ctx.fillStyle = "#000000";
+      ctx.fillRect(0, 0, w, h);
+
+      const res = currentRes;
+      const bres = baselineRes;
+      const p = getCurrentSimParams();
+      const e = p.e;
+      const R = p.R;
+      const alphaRad = (state.animAngleDeg * Math.PI) / 180.0;
+
+      // Layout: Reserve right strip for colorbar
+      const cbarW = 64;
+      const plotW = Math.max(200, w - cbarW - 10);
+      const plotH = h;
+
+      // World bounds
+      let maxAbsX = 110, maxAbsY = 120;
+      for (let i = 0; i < res.Yh.length; i += 6) {
+        const xo = Math.abs(res.Yh[i] + 14.0 * res.nhy[i]);
+        const yo = Math.abs(res.Xh[i] + 14.0 * res.nhx[i]);
+        if (xo > maxAbsX) maxAbsX = xo;
+        if (yo > maxAbsY) maxAbsY = yo;
+      }
+      const limX = Math.max(maxAbsX + 68, 180);
+      const limY = Math.max(maxAbsY + 42, 160);
+      const scale = Math.min((plotW * 0.94) / (2 * limX + 30), (plotH * 0.94) / (2 * limY));
+      const cx0 = plotW * 0.48;
+      const cy0 = plotH * 0.5;
+      const sx = (wx) => cx0 + wx * scale;
+      const sy = (wy) => cy0 - wy * scale;
+
+      const waistXRight = WankelWearModel.interpPeriodic(270.0, res.Yh);
+      const waistXLeft = WankelWearModel.interpPeriodic(810.0, res.Yh);
+      const portLen = 66.0;
+      const px0 = waistXLeft - portLen;
+
+      // 1. Outer Casing
+      ctx.beginPath();
+      for (let i = 0; i < res.Yh.length; i++) {
+        const x = sx(res.Yh[i] + 14.0 * res.nhy[i]);
+        const y = sy(res.Xh[i] + 14.0 * res.nhx[i]);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      ctx.fillStyle = "#1c1c20";
+      ctx.fill();
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 1.4;
+      ctx.stroke();
+
+      // 2. Inner Background Cutout
+      ctx.beginPath();
+      for (let i = 0; i < res.Yh.length; i++) {
+        const x = sx(res.Yh[i]);
+        const y = sy(res.Xh[i]);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      ctx.fillStyle = "#000000";
+      ctx.fill();
+
+      // 3. Left Intake & Exhaust Port Cutouts + Animated Flow
+      ctx.fillStyle = "#000000";
+      ctx.fillRect(sx(px0), sy(58), (portLen + 10) * scale, 24 * scale);
+      ctx.fillRect(sx(px0), sy(-34), (portLen + 10) * scale, 24 * scale);
+
+      const dashOff = (state.animAngleDeg * 0.15) % 12;
+      ctx.save();
+      ctx.lineWidth = Math.max(4, 7 * scale);
+      ctx.setLineDash([7 * scale, 7 * scale]);
+
+      // Intake flow (inward)
+      ctx.strokeStyle = "rgba(56, 189, 248, 0.55)";
+      ctx.lineDashOffset = -dashOff * scale;
+      ctx.beginPath();
+      ctx.moveTo(sx(px0 + 2), sy(46));
+      ctx.lineTo(sx(waistXLeft - 2), sy(46));
+      ctx.stroke();
+
+      // Exhaust flow (outward)
+      ctx.strokeStyle = "rgba(161, 161, 170, 0.45)";
+      ctx.lineDashOffset = dashOff * scale;
+      ctx.beginPath();
+      ctx.moveTo(sx(px0 + 2), sy(-46));
+      ctx.lineTo(sx(waistXLeft - 2), sy(-46));
+      ctx.stroke();
+      ctx.restore();
+
+      // Port walls
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.moveTo(sx(px0), sy(58)); ctx.lineTo(sx(waistXLeft + 1), sy(58));
+      ctx.moveTo(sx(px0), sy(34)); ctx.lineTo(sx(waistXLeft + 1), sy(34));
+      ctx.moveTo(sx(px0), sy(-34)); ctx.lineTo(sx(waistXLeft + 1), sy(-34));
+      ctx.moveTo(sx(px0), sy(-58)); ctx.lineTo(sx(waistXLeft + 1), sy(-58));
+      ctx.stroke();
+
+      // 4. Chambers (4-Stroke Gas Colors)
+      const { chambers, apexesVis, centerVis } = model.getChamberPolygonsVis(alphaRad, res, e, R);
+      let sparkActive = false;
+      let trackedStroke = "INTAKE";
+
+      chambers.forEach(({ poly, midAngle }, idx) => {
+        const st = strokeColorAndName(midAngle);
+        if (midAngle >= 252 && midAngle <= 292) sparkActive = true;
+        if (idx === 0) trackedStroke = st.name;
+
+        ctx.beginPath();
+        for (let i = 0; i < poly.length; i++) {
+          const x = sx(poly[i][0]), y = sy(poly[i][1]);
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.closePath();
+        ctx.save();
+        ctx.globalAlpha = st.alpha;
+        ctx.fillStyle = st.color;
+        ctx.fill();
+        ctx.restore();
+      });
+
+      // 5. Baseline 13B Dashed Housing
+      ctx.save();
+      ctx.beginPath();
+      for (let i = 0; i < bres.Yh.length; i += 2) {
+        const x = sx(bres.Yh[i]), y = sy(bres.Xh[i]);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      ctx.strokeStyle = "rgba(113,113,122,0.85)";
+      ctx.lineWidth = 1.1;
+      ctx.setLineDash([4, 4]);
+      ctx.stroke();
+      ctx.restore();
+
+      // 6. Inner Housing Wall with Inferno Wear Heatmap
+      const vmax = Math.max(bres.peak_total_wear_um, res.peak_total_wear_um, 1e-3);
+      ctx.lineWidth = 3.8;
+      ctx.lineCap = "round";
+      const stepSeg = 2;
+      for (let i = 0; i < res.Yh.length; i += stepSeg) {
+        const j = (i + stepSeg) % res.Yh.length;
+        const wNorm = res.wear_cum_um[i] / vmax;
+        ctx.strokeStyle = infernoCSS(wNorm);
+        ctx.beginPath();
+        ctx.moveTo(sx(res.Yh[i]), sy(res.Xh[i]));
+        ctx.lineTo(sx(res.Yh[j]), sy(res.Xh[j]));
+        ctx.stroke();
+      }
+
+      // 7. Right Twin Spark Plugs + Ignition Flash
+      ctx.fillStyle = "#e4e4e7";
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 1.0;
+      ctx.fillRect(sx(waistXRight + 1), sy(28), 40 * scale, 10 * scale);
+      ctx.strokeRect(sx(waistXRight + 1), sy(28), 40 * scale, 10 * scale);
+      ctx.fillRect(sx(waistXRight + 1), sy(-18), 40 * scale, 10 * scale);
+      ctx.strokeRect(sx(waistXRight + 1), sy(-18), 40 * scale, 10 * scale);
+
+      if (sparkActive) {
+        drawStar(ctx, sx(waistXRight - 2), sy(23), 6, 10, 4, "#fef08a");
+        drawStar(ctx, sx(waistXRight - 2), sy(-23), 6, 10, 4, "#fef08a");
+      }
+
+      // 8. Rotor Body
+      const { pts: rotorPts } = model.getRotorPolygon(alphaRad, e, R, 22);
+      ctx.beginPath();
+      for (let i = 0; i < rotorPts.length; i++) {
+        const x = sx(rotorPts[i][1]), y = sy(rotorPts[i][0]);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      ctx.fillStyle = "rgba(6, 182, 212, 0.92)";
+      ctx.fill();
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 1.6;
+      ctx.stroke();
+
+      // 9. Rotor Bearing Ring & Internal Ring Gear (27 teeth)
+      const [cxV, cyV] = centerVis;
+      ctx.beginPath();
+      ctx.arc(sx(cxV), sy(cyV), 3.35 * e * scale, 0, Math.PI * 2);
+      ctx.fillStyle = "#52525b";
+      ctx.fill();
+      ctx.strokeStyle = "#e4e4e7";
+      ctx.lineWidth = 1.0;
+      ctx.stroke();
+
+      const toothD = Math.max(2.2, 0.32 * e);
+      const rotGear = WankelWearModel.buildGearPolygon(cxV, cyV, 3.0 * e, 27, toothD, -alphaRad / 3.0, true);
+      ctx.beginPath();
+      for (let i = 0; i < rotGear.length; i++) {
+        const x = sx(rotGear[i][0]), y = sy(rotGear[i][1]);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      ctx.fillStyle = "#0a0a0a";
+      ctx.fill();
+      ctx.strokeStyle = "#a1a1aa";
+      ctx.lineWidth = 0.8;
+      ctx.stroke();
+
+      // 10. Stationary Gear B (18 teeth)
+      const statGear = WankelWearModel.buildGearPolygon(0, 0, 2.0 * e, 18, toothD, 0, false);
+      ctx.beginPath();
+      for (let i = 0; i < statGear.length; i++) {
+        const x = sx(statGear[i][0]), y = sy(statGear[i][1]);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.closePath();
+      ctx.fillStyle = "#991b1b";
+      ctx.fill();
+      ctx.strokeStyle = "#fca5a5";
+      ctx.lineWidth = 0.9;
+      ctx.stroke();
+
+      // 11. Eccentric Arm & Rotating Output Shaft B (3x speed)
+      ctx.strokeStyle = "rgba(56, 189, 248, 0.85)";
+      ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.moveTo(sx(0), sy(0));
+      ctx.lineTo(sx(cxV), sy(cyV));
+      ctx.stroke();
+
+      const rShaft = Math.max(6.0, 1.15 * e);
+      ctx.beginPath();
+      ctx.arc(sx(0), sy(0), rShaft * scale, 0, Math.PI * 2);
+      ctx.fillStyle = "#71717a";
+      ctx.fill();
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 1.0;
+      ctx.stroke();
+
+      const rSpoke = Math.max(5.5, 1.05 * e);
+      const dx1 = rSpoke * Math.sin(alphaRad), dy1 = rSpoke * Math.cos(alphaRad);
+      const dx2 = rSpoke * Math.sin(alphaRad + 0.5 * Math.PI), dy2 = rSpoke * Math.cos(alphaRad + 0.5 * Math.PI);
+      ctx.strokeStyle = "#ffffff";
+      ctx.lineWidth = 2.0;
+      ctx.beginPath();
+      ctx.moveTo(sx(-dx1), sy(-dy1)); ctx.lineTo(sx(dx1), sy(dy1));
+      ctx.stroke();
+      ctx.strokeStyle = "#d4d4d8";
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(sx(-dx2), sy(-dy2)); ctx.lineTo(sx(dx2), sy(dy2));
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(sx(0.72 * dx1), sy(0.72 * dy1), 3.6, 0, Math.PI * 2);
+      ctx.fillStyle = "#38bdf8";
+      ctx.fill();
+      ctx.strokeStyle = "#000000";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+
+      // 12. 3 Apex Seal Dots
+      const apexR = 2.5 + 0.85 * p.r_u;
+      for (const ap of apexesVis) {
+        ctx.beginPath();
+        ctx.arc(sx(ap[0]), sy(ap[1]), apexR, 0, Math.PI * 2);
+        ctx.fillStyle = "#ffffff";
+        ctx.fill();
+        ctx.strokeStyle = "#000000";
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+      }
+
+      // 13. Markers A & B
+      const aPosX = cxV + 0.72 * (apexesVis[0][0] - cxV);
+      const aPosY = cyV + 0.72 * (apexesVis[0][1] - cyV);
+      ctx.font = "bold 12px Inter, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillStyle = "#000000";
+      ctx.fillText("A", sx(aPosX), sy(aPosY));
+
+      ctx.beginPath();
+      ctx.arc(sx(0), sy(0), 7.5, 0, Math.PI * 2);
+      ctx.fillStyle = "#ffffff";
+      ctx.fill();
+      ctx.strokeStyle = "#000000";
+      ctx.lineWidth = 0.8;
+      ctx.stroke();
+      ctx.font = "bold 10px Inter, sans-serif";
+      ctx.fillStyle = "#000000";
+      ctx.fillText("B", sx(0), sy(0) + 0.5);
+
+      // 14. 4-Stroke Labels & Waist Guide
+      const dim = "#3f3f46";
+      ctx.textAlign = "left";
+      ctx.font = "bold 12px 'Noto Sans KR', Inter, sans-serif";
+      drawMultiLine(ctx, "INTAKE\n(흡입)", sx(px0 - 8), sy(94), trackedStroke === "INTAKE" ? "#38bdf8" : dim);
+      drawMultiLine(ctx, "COMPRESSION\n(압축)", sx(waistXRight * 0.52), sy(limY * 0.78), trackedStroke === "COMPRESSION" ? "#a78bfa" : dim);
+      drawMultiLine(ctx, "IGNITION\n(폭발·팽창)", sx(waistXRight * 0.55), sy(-limY * 0.74), trackedStroke === "IGNITION" ? "#fb923c" : dim);
+      drawMultiLine(ctx, "EXHAUST\n(배기)", sx(px0 - 8), sy(-108), trackedStroke === "EXHAUST" ? "#e4e4e7" : dim);
+
+      ctx.font = "bold 11px 'Noto Sans KR', sans-serif";
+      drawMultiLine(ctx, "← 허리부(Waist)\n   국부 곡률 보정 구간", sx(waistXRight + 44), sy(4), "#d4d4d8");
+
+      // 15. Top-Left HUD Box
+      const dispPct = ((res.V_H_cc - bres.V_H_cc) / Math.max(bres.V_H_cc, 1e-9)) * 100.0;
+      const blowTag = !res.operable ? "  |  [엔진 블로우 - 회전 정지]" : "";
+      const hudLines = [
+        `RPM: ${p.rpm.toFixed(0)}  |  e=${e.toFixed(2)} mm, R=${R.toFixed(2)} mm${blowTag}`,
+        `K=${res.K_ratio.toFixed(2)} (λ=${res.lambda_hsieh.toFixed(3)})  |  배기량: ${res.V_H_cc.toFixed(0)} cc (${dispPct >= 0 ? "+" : ""}${dispPct.toFixed(1)}%)`,
+        `Δa_max=${p.delta_a.toFixed(3)} mm, σ=${p.sigma.toFixed(1)}°, r_u=${p.r_u.toFixed(2)} mm`
+      ];
+      ctx.font = "11px 'JetBrains Mono', 'Noto Sans KR', monospace";
+      const boxW = Math.max(...hudLines.map((l) => ctx.measureText(l).width)) + 18;
+      const boxH = 54;
+      ctx.fillStyle = "rgba(13,13,13,0.88)";
+      ctx.strokeStyle = !res.operable ? "#ef4444" : "#27272a";
+      ctx.lineWidth = 1;
+      roundRect(ctx, 10, 10, boxW, boxH, 6);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = "#e4e4e7";
+      ctx.textAlign = "left";
+      ctx.textBaseline = "top";
+      hudLines.forEach((l, i) => ctx.fillText(l, 19, 17 + i * 15));
+
+      // 16. Right Vertical Inferno Colorbar
+      const barX = w - cbarW + 4;
+      const barY = 24;
+      const barW = 14;
+      const barH = Math.max(120, h - 48);
+      for (let py = 0; py < barH; py++) {
+        const t = 1.0 - py / barH;
+        ctx.fillStyle = infernoCSS(t);
+        ctx.fillRect(barX, barY + py, barW, 1.5);
+      }
+      ctx.strokeStyle = "#27272a";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(barX, barY, barW, barH);
+
+      ctx.font = "10px 'JetBrains Mono', monospace";
+      ctx.fillStyle = "#ffffff";
+      ctx.textAlign = "left";
+      ctx.textBaseline = "middle";
+      for (let k = 0; k <= 4; k++) {
+        const frac = k / 4;
+        const val = vmax * (1.0 - frac);
+        const yy = barY + frac * barH;
+        ctx.fillText(val.toFixed(val >= 10 ? 1 : 2), barX + barW + 5, yy);
+      }
+
+      ctx.save();
+      ctx.translate(w - 6, barY + barH / 2);
+      ctx.rotate(-Math.PI / 2);
+      ctx.font = "bold 10.5px 'Noto Sans KR', sans-serif";
+      ctx.fillStyle = "#ffffff";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "bottom";
+      ctx.fillText("내벽 누적 마모 깊이 (μm)", 0, 0);
+      ctx.restore();
+    }
+
+    function drawStar(ctx, cx, cy, spikes, outerR, innerR, color) {
+      let rot = (Math.PI / 2) * 3;
+      const step = Math.PI / spikes;
+      ctx.beginPath();
+      ctx.moveTo(cx, cy - outerR);
+      for (let i = 0; i < spikes; i++) {
+        ctx.lineTo(cx + Math.cos(rot) * outerR, cy + Math.sin(rot) * outerR);
+        rot += step;
+        ctx.lineTo(cx + Math.cos(rot) * innerR, cy + Math.sin(rot) * innerR);
+        rot += step;
+      }
+      ctx.closePath();
+      ctx.fillStyle = color;
+      ctx.fill();
+    }
+
+    function drawMultiLine(ctx, text, x, y, color) {
+      ctx.fillStyle = color;
+      ctx.textBaseline = "top";
+      text.split("\n").forEach((line, i) => ctx.fillText(line, x, y + i * 15));
+    }
+
+    function roundRect(ctx, x, y, w, h, r) {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + w, y, x + w, y + h, r);
+      ctx.arcTo(x + w, y + h, x, y + h, r);
+      ctx.arcTo(x, y + h, x, y, r);
+      ctx.arcTo(x, y, x + w, y, r);
+      ctx.closePath();
+    }
+
+    // =========================================================================
+    // 6. [뷰 A-2] 3D 모델 기반 회전 시뮬레이션 (Three.js)
+    //    수직 배치 (X: 좌우, Y: 상하, Z: 하우징 폭 깊이)
+    // =========================================================================
+    const container3d = document.getElementById("container-3d");
+    const hud3dEl = document.getElementById("hud-3d");
+    let threeReady = false;
+    let scene, camera, renderer;
+    let staticGroup3d, dynamicGroup3d;
+    let rotorMesh3d, sealMeshes3d = [], chamberMeshes3d = [];
+    let shaftAxis3d, shaftLobe3d, crankFront3d, crankBack3d, spokeFront3d, spokeBack3d, keyFront3d, keyBack3d;
+    let sparkTop3d, sparkBot3d;
+
+    // Orbit camera spherical state
+    const camOrbit = {
+      theta: 0.42,      // azimuth (rad) -> default slightly angled front-right
+      phi: 1.36,        // polar from +Y (rad) -> slight elevation
+      radius: 420,
+      target: new THREE.Vector3(0, 0, 0),
+      dragging: false,
+      lastX: 0,
+      lastY: 0
+    };
+
+    function init3DScene() {
+      if (threeReady || typeof THREE === "undefined") return;
+      threeReady = true;
+
+      scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x000000);
+
+      const rect = container3d.getBoundingClientRect();
+      camera = new THREE.PerspectiveCamera(38, Math.max(1, rect.width) / Math.max(1, rect.height), 1, 2500);
+      update3DCameraPosition();
+
+      renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      renderer.setSize(Math.max(100, rect.width), Math.max(100, rect.height));
+      container3d.appendChild(renderer.domElement);
+
+      // Lighting
+      scene.add(new THREE.AmbientLight(0xffffff, 0.72));
+      const dir1 = new THREE.DirectionalLight(0xffffff, 0.85);
+      dir1.position.set(180, 260, 280);
+      scene.add(dir1);
+      const dir2 = new THREE.DirectionalLight(0x38bdf8, 0.35);
+      dir2.position.set(-220, -140, -180);
+      scene.add(dir2);
+
+      staticGroup3d = new THREE.Group();
+      dynamicGroup3d = new THREE.Group();
+      scene.add(staticGroup3d);
+      scene.add(dynamicGroup3d);
+
+      // Dynamic rotor placeholder & 3 apex seals
+      const sealGeo = new THREE.CylinderGeometry(2.4, 2.4, 78, 12);
+      sealGeo.rotateX(Math.PI / 2);
+      const sealMat = new THREE.MeshStandardMaterial({ color: 0xfef08a, emissive: 0x854d0e, roughness: 0.3 });
+      for (let i = 0; i < 3; i++) {
+        const sm = new THREE.Mesh(sealGeo, sealMat);
+        dynamicGroup3d.add(sm);
+        sealMeshes3d.push(sm);
+      }
+
+      // 3 chamber gas meshes
+      for (let i = 0; i < 3; i++) {
+        const cm = new THREE.Mesh(
+          new THREE.BufferGeometry(),
+          new THREE.MeshBasicMaterial({ color: 0x38bdf8, transparent: true, opacity: 0.32, side: THREE.DoubleSide, depthWrite: false })
+        );
+        dynamicGroup3d.add(cm);
+        chamberMeshes3d.push(cm);
+      }
+
+      // Output shaft (B), eccentric lobe, crank arms, rotating spokes & keys
+      const axisGeo = new THREE.CylinderGeometry(4.2, 4.2, 132, 16);
+      axisGeo.rotateX(Math.PI / 2);
+      shaftAxis3d = new THREE.Mesh(axisGeo, new THREE.MeshStandardMaterial({ color: 0xd4d4d8, metalness: 0.6, roughness: 0.3 }));
+      dynamicGroup3d.add(shaftAxis3d);
+
+      const lobeGeo = new THREE.CylinderGeometry(5.0, 5.0, 74, 16);
+      lobeGeo.rotateX(Math.PI / 2);
+      shaftLobe3d = new THREE.Mesh(lobeGeo, new THREE.MeshStandardMaterial({ color: 0x38bdf8, metalness: 0.4, roughness: 0.3 }));
+      dynamicGroup3d.add(shaftLobe3d);
+
+      const crankMat = new THREE.LineBasicMaterial({ color: 0x38bdf8 });
+      crankFront3d = new THREE.Line(new THREE.BufferGeometry(), crankMat);
+      crankBack3d = new THREE.Line(new THREE.BufferGeometry(), crankMat);
+      dynamicGroup3d.add(crankFront3d, crankBack3d);
+
+      const spokeMat = new THREE.LineBasicMaterial({ color: 0xffffff });
+      spokeFront3d = new THREE.Line(new THREE.BufferGeometry(), spokeMat);
+      spokeBack3d = new THREE.Line(new THREE.BufferGeometry(), spokeMat);
+      dynamicGroup3d.add(spokeFront3d, spokeBack3d);
+
+      const keyGeo = new THREE.SphereGeometry(3.2, 12, 12);
+      const keyMat = new THREE.MeshBasicMaterial({ color: 0xf87171 });
+      keyFront3d = new THREE.Mesh(keyGeo, keyMat);
+      keyBack3d = new THREE.Mesh(keyGeo, keyMat);
+      dynamicGroup3d.add(keyFront3d, keyBack3d);
+
+      const sparkGeo = new THREE.OctahedronGeometry(5.5, 0);
+      const sparkMat = new THREE.MeshBasicMaterial({ color: 0xfef08a });
+      sparkTop3d = new THREE.Mesh(sparkGeo, sparkMat);
+      sparkBot3d = new THREE.Mesh(sparkGeo, sparkMat);
+      sparkTop3d.visible = false;
+      sparkBot3d.visible = false;
+      dynamicGroup3d.add(sparkTop3d, sparkBot3d);
+
+      // Mouse & Touch Orbit Controls
+      const dom = renderer.domElement;
+      dom.addEventListener("mousedown", (ev) => {
+        camOrbit.dragging = true;
+        camOrbit.lastX = ev.clientX;
+        camOrbit.lastY = ev.clientY;
+      });
+      window.addEventListener("mouseup", () => { camOrbit.dragging = false; });
+      window.addEventListener("mousemove", (ev) => {
+        if (!camOrbit.dragging) return;
+        const dx = ev.clientX - camOrbit.lastX;
+        const dy = ev.clientY - camOrbit.lastY;
+        camOrbit.lastX = ev.clientX;
+        camOrbit.lastY = ev.clientY;
+        camOrbit.theta -= dx * 0.008;
+        camOrbit.phi = Math.max(0.15, Math.min(Math.PI - 0.15, camOrbit.phi - dy * 0.008));
+        update3DCameraPosition();
+      });
+      dom.addEventListener("wheel", (ev) => {
+        ev.preventDefault();
+        camOrbit.radius = Math.max(170, Math.min(750, camOrbit.radius + ev.deltaY * 0.35));
+        update3DCameraPosition();
+      }, { passive: false });
+
+      dom.addEventListener("touchstart", (ev) => {
+        if (ev.touches.length === 1) {
+          camOrbit.dragging = true;
+          camOrbit.lastX = ev.touches[0].clientX;
+          camOrbit.lastY = ev.touches[0].clientY;
+        }
+      }, { passive: true });
+      dom.addEventListener("touchmove", (ev) => {
+        if (!camOrbit.dragging || ev.touches.length !== 1) return;
+        const dx = ev.touches[0].clientX - camOrbit.lastX;
+        const dy = ev.touches[0].clientY - camOrbit.lastY;
+        camOrbit.lastX = ev.touches[0].clientX;
+        camOrbit.lastY = ev.touches[0].clientY;
+        camOrbit.theta -= dx * 0.009;
+        camOrbit.phi = Math.max(0.15, Math.min(Math.PI - 0.15, camOrbit.phi - dy * 0.009));
+        update3DCameraPosition();
+      }, { passive: true });
+      dom.addEventListener("touchend", () => { camOrbit.dragging = false; });
+    }
+
+    function update3DCameraPosition() {
+      if (!camera) return;
+      const { theta, phi, radius, target } = camOrbit;
+      camera.position.set(
+        target.x + radius * Math.sin(phi) * Math.sin(theta),
+        target.y + radius * Math.cos(phi),
+        target.z + radius * Math.sin(phi) * Math.cos(theta)
+      );
+      camera.lookAt(target);
+    }
+
+    function set3DCameraPreset(preset) {
+      camOrbit.target.set(0, 0, 0);
+      if (preset === "iso") {
+        camOrbit.theta = 0.42; camOrbit.phi = 1.36; camOrbit.radius = 420;
+      } else if (preset === "front") {
+        camOrbit.theta = 0.0; camOrbit.phi = Math.PI / 2; camOrbit.radius = 410;
+      } else if (preset === "side") {
+        camOrbit.theta = 1.30; camOrbit.phi = 1.40; camOrbit.radius = 420;
+      } else if (preset === "back") {
+        camOrbit.theta = Math.PI - 0.42; camOrbit.phi = 1.36; camOrbit.radius = 420;
+      } else if (preset === "waist") {
+        camOrbit.theta = 0.85; camOrbit.phi = 1.30; camOrbit.radius = 270;
+        camOrbit.target.set(65, 0, 0);
+      }
+      update3DCameraPosition();
+    }
+
+    function rebuild3DHousing() {
+      if (!threeReady) return;
+      while (staticGroup3d.children.length > 0) {
+        const ch = staticGroup3d.children.pop();
+        if (ch.geometry) ch.geometry.dispose();
+        if (ch.material) ch.material.dispose();
+      }
+
+      const res = currentRes;
+      const bres = baselineRes;
+      const p = getCurrentSimParams();
+      const zHalf = p.width * 0.5;
+      const step = 6;
+      const vmax = Math.max(bres.peak_total_wear_um, res.peak_total_wear_um, 1e-3);
+
+      const xh = [], yh = [], xo = [], yo = [], wear = [];
+      for (let i = 0; i < res.Yh.length; i += step) {
+        xh.push(res.Yh[i]);
+        yh.push(res.Xh[i]);
+        xo.push(res.Yh[i] + 14.0 * res.nhy[i]);
+        yo.push(res.Xh[i] + 14.0 * res.nhx[i]);
+        wear.push(res.wear_cum_um[i]);
+      }
+
+      // 1. Inner Housing Surface (Vertex-colored with Inferno heatmap)
+      const nSeg = xh.length;
+      const inPos = [];
+      const inCol = [];
+      const outPos = [];
+      for (let i = 0; i < nSeg; i++) {
+        const j = (i + 1) % nSeg;
+        const t = Math.min(1, 0.5 * (wear[i] + wear[j]) / vmax);
+        const [r, g, b] = infernoRGB(t);
+        const rf = r / 255, gf = g / 255, bf = b / 255;
+
+        // Inner quad -> 2 triangles
+        inPos.push(
+          xh[i], yh[i], zHalf,  xh[j], yh[j], zHalf,  xh[j], yh[j], -zHalf,
+          xh[i], yh[i], zHalf,  xh[j], yh[j], -zHalf, xh[i], yh[i], -zHalf
+        );
+        for (let k = 0; k < 6; k++) inCol.push(rf, gf, bf);
+
+        // Outer quad
+        outPos.push(
+          xo[i], yo[i], zHalf,  xo[j], yo[j], zHalf,  xo[j], yo[j], -zHalf,
+          xo[i], yo[i], zHalf,  xo[j], yo[j], -zHalf, xo[i], yo[i], -zHalf
+        );
+      }
+
+      const inGeo = new THREE.BufferGeometry();
+      inGeo.setAttribute("position", new THREE.Float32BufferAttribute(inPos, 3));
+      inGeo.setAttribute("color", new THREE.Float32BufferAttribute(inCol, 3));
+      inGeo.computeVertexNormals();
+      staticGroup3d.add(new THREE.Mesh(
+        inGeo,
+        new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.42, side: THREE.DoubleSide, depthWrite: false })
+      ));
+
+      const outGeo = new THREE.BufferGeometry();
+      outGeo.setAttribute("position", new THREE.Float32BufferAttribute(outPos, 3));
+      outGeo.computeVertexNormals();
+      staticGroup3d.add(new THREE.Mesh(
+        outGeo,
+        new THREE.MeshBasicMaterial({ color: 0x3f3f46, transparent: true, opacity: 0.16, side: THREE.DoubleSide, depthWrite: false })
+      ));
+
+      // Front & Back Rims
+      const makeLoop = (xs, ys, z, color) => {
+        const pts = xs.map((x, i) => new THREE.Vector3(x, ys[i], z));
+        pts.push(pts[0].clone());
+        return new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color }));
+      };
+      staticGroup3d.add(makeLoop(xh, yh, zHalf, 0xffffff));
+      staticGroup3d.add(makeLoop(xh, yh, -zHalf, 0x71717a));
+      staticGroup3d.add(makeLoop(xo, yo, zHalf, 0xa1a1aa));
+      staticGroup3d.add(makeLoop(xo, yo, -zHalf, 0x52525b));
+
+      // Baseline 13B dashed rim
+      const bx = [], by = [];
+      for (let i = 0; i < bres.Yh.length; i += step) {
+        bx.push(bres.Yh[i]); by.push(bres.Xh[i]);
+      }
+      staticGroup3d.add(makeLoop(bx, by, zHalf + 0.5, 0x71717a));
+
+      // 2. Left Intake & Exhaust 3D Port Ducts
+      const waistXLeft = WankelWearModel.interpPeriodic(810.0, res.Yh);
+      const portMat = new THREE.MeshStandardMaterial({ color: 0x27272a, transparent: true, opacity: 0.65, roughness: 0.6 });
+      const portEdgeMat = new THREE.LineBasicMaterial({ color: 0xd4d4d8 });
+      for (const py of [45, -45]) {
+        const boxGeo = new THREE.BoxGeometry(60, 22, 40);
+        const mesh = new THREE.Mesh(boxGeo, portMat);
+        mesh.position.set(waistXLeft - 32, py, 0);
+        staticGroup3d.add(mesh);
+        const edges = new THREE.LineSegments(new THREE.EdgesGeometry(boxGeo), portEdgeMat);
+        edges.position.copy(mesh.position);
+        staticGroup3d.add(edges);
+      }
+
+      // 3. Right Twin Spark Plugs
+      const waistXRight = WankelWearModel.interpPeriodic(270.0, res.Yh);
+      const plugMat = new THREE.MeshStandardMaterial({ color: 0xe4e4e7, metalness: 0.4, roughness: 0.3 });
+      for (const py of [22, -22]) {
+        const plugGeo = new THREE.BoxGeometry(38, 10, 12);
+        const pm = new THREE.Mesh(plugGeo, plugMat);
+        pm.position.set(waistXRight + 21, py, 0);
+        staticGroup3d.add(pm);
+      }
+      sparkTop3d.position.set(waistXRight - 2, 22, 0);
+      sparkBot3d.position.set(waistXRight - 2, -22, 0);
+
+      // Update 3D HUD text
+      const dispPct = ((res.V_H_cc - bres.V_H_cc) / Math.max(bres.V_H_cc, 1e-9)) * 100.0;
+      const blowTag = !res.operable ? "  |  [엔진 블로우 - 회전 정지]" : "";
+      hud3dEl.innerHTML =
+        `3D 수직 입체 모델: 폭 b=${p.width.toFixed(0)} mm | e=${p.e.toFixed(2)} / R=${p.R.toFixed(2)} mm<br>` +
+        `배기량: ${res.V_H_cc.toFixed(0)} cc (${dispPct >= 0 ? "+" : ""}${dispPct.toFixed(1)}%) | Δa=${p.delta_a.toFixed(3)} mm | RPM=${p.rpm.toFixed(0)}${blowTag}`;
+
+      state.mesh3dDirty = false;
+    }
+
+    function render3DFrame() {
+      if (!threeReady) return;
+      const rect = container3d.getBoundingClientRect();
+      if (rect.width > 10 && rect.height > 10) {
+        camera.aspect = rect.width / rect.height;
+        camera.updateProjectionMatrix();
+        renderer.setSize(rect.width, rect.height, false);
+      }
+
+      const alphaRad = (state.animAngleDeg * Math.PI) / 180.0;
+      const p = getCurrentSimParams();
+      const e = p.e, R = p.R;
+      const zRot = 36.0;
+      const zShaft = 64.0;
+
+      // 1. Extrude 3D Rotor Mesh (rebuilt per frame or transformed; rebuilding shape is tiny & exact)
+      const { pts: rotorPts } = model.getRotorPolygon(alphaRad, e, R, 12);
+      const shape = new THREE.Shape();
+      for (let i = 0; i < rotorPts.length; i++) {
+        const x = rotorPts[i][1], y = rotorPts[i][0];
+        if (i === 0) shape.moveTo(x, y);
+        else shape.lineTo(x, y);
+      }
+      shape.closePath();
+
+      if (rotorMesh3d) {
+        dynamicGroup3d.remove(rotorMesh3d);
+        rotorMesh3d.geometry.dispose();
+      }
+      const extrudeGeo = new THREE.ExtrudeGeometry(shape, { depth: zRot * 2, bevelEnabled: false });
+      extrudeGeo.translate(0, 0, -zRot);
+      rotorMesh3d = new THREE.Mesh(
+        extrudeGeo,
+        new THREE.MeshStandardMaterial({ color: 0x06b6d4, roughness: 0.35, metalness: 0.25, transparent: true, opacity: 0.88 })
+      );
+      dynamicGroup3d.add(rotorMesh3d);
+
+      // 2. Chambers + 3 Apex Seals
+      const { chambers, apexesVis, centerVis } = model.getChamberPolygonsVis(alphaRad, currentRes, e, R);
+      const [cxV, cyV] = centerVis;
+      let sparkActive = false;
+      let trackedStroke = "INTAKE";
+
+      chambers.forEach(({ poly, midAngle }, idx) => {
+        const st = strokeColorAndName(midAngle);
+        if (midAngle >= 252 && midAngle <= 292) sparkActive = true;
+        if (idx === 0) trackedStroke = st.name;
+
+        const cShape = new THREE.Shape();
+        for (let i = 0; i < poly.length; i += 2) {
+          if (i === 0) cShape.moveTo(poly[i][0], poly[i][1]);
+          else cShape.lineTo(poly[i][0], poly[i][1]);
+        }
+        cShape.closePath();
+        const cGeo = new THREE.ShapeGeometry(cShape);
+        cGeo.translate(0, 0, zRot - 2.0);
+        chamberMeshes3d[idx].geometry.dispose();
+        chamberMeshes3d[idx].geometry = cGeo;
+        chamberMeshes3d[idx].material.color.set(st.color);
+        chamberMeshes3d[idx].material.opacity = Math.min(st.alpha * 0.72, 0.55);
+      });
+
+      sparkTop3d.visible = sparkActive;
+      sparkBot3d.visible = sparkActive;
+
+      // Update 4-stroke 3D badges
+      document.getElementById("lbl3d-intake").style.color = trackedStroke === "INTAKE" ? "#38bdf8" : "#52525b";
+      document.getElementById("lbl3d-comp").style.color = trackedStroke === "COMPRESSION" ? "#a78bfa" : "#52525b";
+      document.getElementById("lbl3d-ign").style.color = trackedStroke === "IGNITION" ? "#fb923c" : "#52525b";
+      document.getElementById("lbl3d-exh").style.color = trackedStroke === "EXHAUST" ? "#e4e4e7" : "#52525b";
+
+      // 3. 3 Apex Seal Bars
+      for (let i = 0; i < 3; i++) {
+        sealMeshes3d[i].position.set(apexesVis[i][0], apexesVis[i][1], 0);
+      }
+
+      // 4. Shaft Lobe, Cranks, Front/Back Spokes & Keys
+      shaftLobe3d.position.set(cxV, cyV, 0);
+      crankFront3d.geometry.dispose();
+      crankFront3d.geometry = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(0, 0, zRot + 6), new THREE.Vector3(cxV, cyV, zRot + 6)
+      ]);
+      crankBack3d.geometry.dispose();
+      crankBack3d.geometry = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(0, 0, -zRot - 6), new THREE.Vector3(cxV, cyV, -zRot - 6)
+      ]);
+
+      const rKey = Math.max(13.0, 1.15 * e);
+      const kx = rKey * Math.sin(alphaRad);
+      const ky = rKey * Math.cos(alphaRad);
+      spokeFront3d.geometry.dispose();
+      spokeFront3d.geometry = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(-kx, -ky, zShaft), new THREE.Vector3(kx, ky, zShaft)
+      ]);
+      spokeBack3d.geometry.dispose();
+      spokeBack3d.geometry = new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(-kx, -ky, -zShaft), new THREE.Vector3(kx, ky, -zShaft)
+      ]);
+      keyFront3d.position.set(0.85 * kx, 0.85 * ky, zShaft + 0.5);
+      keyBack3d.position.set(0.85 * kx, 0.85 * ky, -zShaft - 0.5);
+
+      renderer.render(scene, camera);
+    }
+
+    // =========================================================================
+    // 7. 범용 2D Canvas 그래프 헬퍼 (상세 마모 / 기여도 / 기밀 누설 차트)
+    // =========================================================================
+    function drawLineChart(canvas, cfg) {
+      const { ctx, w, h } = prepCanvas(canvas);
+      ctx.fillStyle = "#000000";
+      ctx.fillRect(0, 0, w, h);
+
+      const pad = { l: 48, r: 16, t: 28, b: 32 };
+      const pw = Math.max(40, w - pad.l - pad.r);
+      const ph = Math.max(40, h - pad.t - pad.b);
+
+      const sx = (x) => pad.l + ((x - cfg.xMin) / (cfg.xMax - cfg.xMin || 1)) * pw;
+      const sy = (y) => pad.t + ph - ((y - cfg.yMin) / (cfg.yMax - cfg.yMin || 1)) * ph;
+
+      // Grid
+      ctx.strokeStyle = "#27272a";
+      ctx.lineWidth = 0.7;
+      ctx.setLineDash([3, 3]);
+      for (let i = 0; i <= 4; i++) {
+        const y = pad.t + (ph * i) / 4;
+        ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(pad.l + pw, y); ctx.stroke();
+      }
+      if (cfg.xTicks) {
+        for (const xt of cfg.xTicks) {
+          const x = sx(xt);
+          ctx.beginPath(); ctx.moveTo(x, pad.t); ctx.lineTo(x, pad.t + ph); ctx.stroke();
+        }
+      }
+      ctx.setLineDash([]);
+
+      // Shaded vertical bands
+      if (cfg.vBands) {
+        for (const b of cfg.vBands) {
+          ctx.fillStyle = b.color;
+          ctx.fillRect(sx(b.x0), pad.t, sx(b.x1) - sx(b.x0), ph);
+        }
+      }
+
+      // Shaded below threshold (e.g., F_rad <= 0.5 N)
+      if (cfg.fillBelow) {
+        const { xs, ys, thresh, color } = cfg.fillBelow;
+        const yThresh = Math.min(pad.t + ph, Math.max(pad.t, sy(thresh)));
+        ctx.fillStyle = color;
+        for (let i = 0; i < xs.length - 1; i++) {
+          if (ys[i] <= thresh || ys[i + 1] <= thresh) {
+            const x0 = sx(xs[i]), x1 = sx(xs[i + 1]);
+            const y0 = Math.min(pad.t + ph, Math.max(pad.t, sy(Math.min(ys[i], thresh))));
+            const y1 = Math.min(pad.t + ph, Math.max(pad.t, sy(Math.min(ys[i + 1], thresh))));
+            ctx.beginPath();
+            ctx.moveTo(x0, yThresh);
+            ctx.lineTo(x1, yThresh);
+            ctx.lineTo(x1, y1);
+            ctx.lineTo(x0, y0);
+            ctx.closePath();
+            ctx.fill();
+          }
+        }
+      }
+
+      // Horizontal reference lines
+      if (cfg.hLines) {
+        for (const hl of cfg.hLines) {
+          const yy = sy(hl.y);
+          if (yy >= pad.t && yy <= pad.t + ph) {
+            ctx.save();
+            ctx.strokeStyle = hl.color;
+            ctx.lineWidth = 1.2;
+            if (hl.dash) ctx.setLineDash(hl.dash);
+            ctx.beginPath(); ctx.moveTo(pad.l, yy); ctx.lineTo(pad.l + pw, yy); ctx.stroke();
+            ctx.restore();
+          }
+        }
+      }
+
+      // Vertical reference lines
+      if (cfg.vLines) {
+        for (const vl of cfg.vLines) {
+          const xx = sx(vl.x);
+          ctx.save();
+          ctx.strokeStyle = vl.color;
+          ctx.lineWidth = 1.2;
+          if (vl.dash) ctx.setLineDash(vl.dash);
+          ctx.beginPath(); ctx.moveTo(xx, pad.t); ctx.lineTo(xx, pad.t + ph); ctx.stroke();
+          ctx.restore();
+        }
+      }
+
+      // Series
+      for (const s of cfg.series) {
+        if (!s.xs || s.xs.length === 0) continue;
+        ctx.save();
+        ctx.strokeStyle = s.color;
+        ctx.lineWidth = s.lw || 1.6;
+        if (s.dash) ctx.setLineDash(s.dash);
+        if (!s.pointsOnly) {
+          ctx.beginPath();
+          for (let i = 0; i < s.xs.length; i++) {
+            const x = sx(s.xs[i]);
+            const y = Math.max(pad.t, Math.min(pad.t + ph, sy(s.ys[i])));
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+          }
+          ctx.stroke();
+        }
+        ctx.setLineDash([]);
+        if (s.marker === "dot") {
+          ctx.fillStyle = s.color;
+          for (let i = 0; i < s.xs.length; i++) {
+            ctx.beginPath();
+            ctx.arc(sx(s.xs[i]), Math.max(pad.t, Math.min(pad.t + ph, sy(s.ys[i]))), s.r || 3.2, 0, Math.PI * 2);
+            ctx.fill();
+            if (s.edge) { ctx.strokeStyle = s.edge; ctx.lineWidth = 1; ctx.stroke(); }
+          }
+        } else if (s.marker === "x") {
+          ctx.strokeStyle = s.color;
+          ctx.lineWidth = 1.8;
+          const r = 4.2;
+          for (let i = 0; i < s.xs.length; i++) {
+            const mx = sx(s.xs[i]), my = Math.max(pad.t, Math.min(pad.t + ph, sy(s.ys[i])));
+            ctx.beginPath();
+            ctx.moveTo(mx - r, my - r); ctx.lineTo(mx + r, my + r);
+            ctx.moveTo(mx + r, my - r); ctx.lineTo(mx - r, my + r);
+            ctx.stroke();
+          }
+        }
+        ctx.restore();
+      }
+
+      // Border
+      ctx.strokeStyle = "#3f3f46";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(pad.l, pad.t, pw, ph);
+
+      // Ticks & Labels
+      ctx.fillStyle = "#d4d4d8";
+      ctx.font = "9.5px 'JetBrains Mono', monospace";
+      ctx.textAlign = "right";
+      ctx.textBaseline = "middle";
+      for (let i = 0; i <= 4; i++) {
+        const val = cfg.yMax - ((cfg.yMax - cfg.yMin) * i) / 4;
+        ctx.fillText(Math.abs(val) >= 100 ? val.toFixed(0) : val.toFixed(1), pad.l - 5, pad.t + (ph * i) / 4);
+      }
+
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      const xTicks = cfg.xTicks || [cfg.xMin, (cfg.xMin + cfg.xMax) / 2, cfg.xMax];
+      for (const xt of xTicks) {
+        ctx.fillText(Number.isInteger(xt) ? xt.toString() : xt.toFixed(1), sx(xt), pad.t + ph + 4);
+      }
+
+      // Title & Axis Labels
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "bold 11.5px 'Noto Sans KR', Inter, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      ctx.fillText(cfg.title, pad.l + pw / 2, 7);
+
+      ctx.fillStyle = "#a1a1aa";
+      ctx.font = "10px 'Noto Sans KR', sans-serif";
+      ctx.fillText(cfg.xLabel, pad.l + pw / 2, h - 13);
+
+      // Compact Legend (top-right inside plot)
+      if (cfg.legend && cfg.legend.length > 0) {
+        ctx.font = "9.5px 'Noto Sans KR', sans-serif";
+        let lx = pad.l + pw - 6;
+        const ly = pad.t + 10;
+        ctx.textAlign = "right";
+        ctx.textBaseline = "middle";
+        for (let i = cfg.legend.length - 1; i >= 0; i--) {
+          const item = cfg.legend[i];
+          const tw = ctx.measureText(item.label).width;
+          ctx.fillStyle = "#e4e4e7";
+          ctx.fillText(item.label, lx, ly);
+          ctx.fillStyle = item.color;
+          ctx.fillRect(lx - tw - 12, ly - 3, 9, 6);
+          lx -= tw + 20;
+        }
+      }
+    }
+
+    function drawHorizontalBarChart(canvas, cfg) {
+      const { ctx, w, h } = prepCanvas(canvas);
+      ctx.fillStyle = "#000000";
+      ctx.fillRect(0, 0, w, h);
+
+      const pad = { l: cfg.leftPad || 126, r: 44, t: cfg.subTitle ? 42 : 28, b: 30 };
+      const pw = Math.max(60, w - pad.l - pad.r);
+      const ph = Math.max(60, h - pad.t - pad.b);
+
+      const sx = (v) => pad.l + ((v - cfg.xMin) / (cfg.xMax - cfg.xMin || 1)) * pw;
+
+      // Grid
+      ctx.strokeStyle = "#27272a";
+      ctx.lineWidth = 0.7;
+      ctx.setLineDash([3, 3]);
+      for (let i = 0; i <= 4; i++) {
+        const x = pad.l + (pw * i) / 4;
+        ctx.beginPath(); ctx.moveTo(x, pad.t); ctx.lineTo(x, pad.t + ph); ctx.stroke();
+      }
+      ctx.setLineDash([]);
+
+      // Zero line
+      if (cfg.xMin < 0 && cfg.xMax > 0) {
+        ctx.strokeStyle = "rgba(255,255,255,0.75)";
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(sx(0), pad.t); ctx.lineTo(sx(0), pad.t + ph); ctx.stroke();
+      }
+
+      // Vertical threshold lines
+      if (cfg.vLines) {
+        for (const vl of cfg.vLines) {
+          const xx = sx(vl.x);
+          if (xx >= pad.l && xx <= pad.l + pw) {
+            ctx.save();
+            ctx.strokeStyle = vl.color;
+            ctx.lineWidth = 1.1;
+            ctx.setLineDash([4, 3]);
+            ctx.beginPath(); ctx.moveTo(xx, pad.t); ctx.lineTo(xx, pad.t + ph); ctx.stroke();
+            ctx.restore();
+            ctx.fillStyle = vl.color;
+            ctx.font = "9px 'Noto Sans KR', sans-serif";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "bottom";
+            ctx.fillText(vl.label, xx, pad.t - 2);
+          }
+        }
+      }
+
+      const n = cfg.labels.length;
+      const rowH = ph / n;
+      const barH = Math.min(26, rowH * 0.58);
+      const x0 = sx(Math.max(0, cfg.xMin));
+
+      for (let i = 0; i < n; i++) {
+        const cy = pad.t + rowH * (i + 0.5);
+        const v = cfg.values[i];
+        const x1 = sx(v);
+        const bx = Math.min(x0, x1);
+        const bw = Math.max(1.5, Math.abs(x1 - x0));
+
+        ctx.fillStyle = cfg.colors[i];
+        ctx.fillRect(bx, cy - barH / 2, bw, barH);
+        ctx.strokeStyle = "rgba(255,255,255,0.6)";
+        ctx.lineWidth = 0.6;
+        ctx.strokeRect(bx, cy - barH / 2, bw, barH);
+
+        // Y-label (supports 2 lines)
+        ctx.fillStyle = "#e4e4e7";
+        ctx.font = "10px 'Noto Sans KR', sans-serif";
+        ctx.textAlign = "right";
+        ctx.textBaseline = "middle";
+        const parts = cfg.labels[i].split("\n");
+        if (parts.length === 1) {
+          ctx.fillText(parts[0], pad.l - 7, cy);
+        } else {
+          ctx.fillText(parts[0], pad.l - 7, cy - 6);
+          ctx.fillStyle = "#a1a1aa";
+          ctx.font = "9px 'Noto Sans KR', sans-serif";
+          ctx.fillText(parts[1], pad.l - 7, cy + 6);
+        }
+
+        // Value label
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "bold 10px 'JetBrains Mono', monospace";
+        const txt = cfg.valFmt(v);
+        if (v >= 0) {
+          ctx.textAlign = "left";
+          ctx.fillText(txt, x1 + 5, cy);
+        } else {
+          ctx.textAlign = "right";
+          ctx.fillText(txt, x1 - 5, cy);
+        }
+      }
+
+      ctx.strokeStyle = "#3f3f46";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(pad.l, pad.t, pw, ph);
+
+      // X ticks
+      ctx.fillStyle = "#a1a1aa";
+      ctx.font = "9.5px 'JetBrains Mono', monospace";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      for (let i = 0; i <= 4; i++) {
+        const val = cfg.xMin + ((cfg.xMax - cfg.xMin) * i) / 4;
+        ctx.fillText(val.toFixed(1), pad.l + (pw * i) / 4, pad.t + ph + 4);
+      }
+
+      // Title
+      ctx.fillStyle = "#ffffff";
+      ctx.font = "bold 11.5px 'Noto Sans KR', sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "top";
+      ctx.fillText(cfg.title, pad.l + pw / 2, 6);
+      if (cfg.subTitle) {
+        ctx.fillStyle = "#a1a1aa";
+        ctx.font = "9.5px 'Noto Sans KR', sans-serif";
+        ctx.fillText(cfg.subTitle, pad.l + pw / 2, 22);
+      }
+      ctx.fillStyle = "#a1a1aa";
+      ctx.font = "10px 'Noto Sans KR', sans-serif";
+      ctx.fillText(cfg.xLabel, pad.l + pw / 2, h - 13);
+    }
+
+    // =========================================================================
+    // 8. [뷰 B] 상세 마모 그래프 4종 렌더링
+    // =========================================================================
+    let cachedRpmSweep = null;
+
+    function computeRpmSweep() {
+      const p = getCurrentSimParams();
+      const validRpm = [], validVal = [], inopRpm = [], inopVal = [];
+      for (let i = 0; i < 19; i++) {
+        const rVal = 500 + i * 500;
+        const resC = model.simulate({ ...p, rpm: rVal });
+        const resB = model.simulate({ ...baselineParams, cycles: p.cycles, rpm: rVal });
+        const red = ((resB.peak_waist_wear_um - resC.peak_waist_wear_um) / Math.max(resB.peak_waist_wear_um, 1e-9)) * 100.0;
+        if (resC.operable) {
+          validRpm.push(rVal); validVal.push(red);
+        } else {
+          inopRpm.push(rVal); inopVal.push(0);
+        }
+      }
+      cachedRpmSweep = { validRpm, validVal, inopRpm, inopVal };
+      state.rpmSweepDirty = false;
+    }
+
+    function renderDetailGraphs() {
+      const res = currentRes;
+      const bres = baselineRes;
+      const p = getCurrentSimParams();
+      const vmax = Math.max(bres.peak_total_wear_um, res.peak_total_wear_um, 1e-3);
+
+      // 1. 편심축 각도별 내벽 누적 마모
+      drawLineChart(document.getElementById("chart-wear"), {
+        title: "편심축 각도별 내벽 누적 마모 (μm)",
+        xLabel: "편심축 각도 EA (°)",
+        xMin: 0, xMax: 1080, xTicks: [0, 270, 540, 810, 1080],
+        yMin: 0, yMax: vmax * 1.15,
+        vBands: [
+          { x0: 215, x1: 325, color: "rgba(239,68,68,0.14)" },
+          { x0: 755, x1: 865, color: "rgba(239,68,68,0.14)" }
+        ],
+        series: [
+          { xs: res.alpha_deg, ys: bres.wear_cum_um, color: "#71717a", lw: 1.4, dash: [4, 4] },
+          { xs: res.alpha_deg, ys: res.wear_cum_um, color: "#ffffff", lw: 1.8 }
+        ],
+        legend: [
+          { label: "기준 13B", color: "#71717a" },
+          { label: "현재 설정", color: "#ffffff" },
+          { label: "허리부", color: "#ef4444" }
+        ]
+      });
+
+      // 2. 에이펙스 씰 스프링 반발력
+      const fsMin = Math.min(bres.F_spring_min, res.F_spring_min, 0) - 3;
+      const fsMax = Math.max(bres.F_spring_max, res.F_spring_max, 40) + 4;
+      drawLineChart(document.getElementById("chart-spring"), {
+        title: "에이펙스 씰 스프링 반발력 F_s(α) (N)",
+        xLabel: "편심축 각도 EA (°)",
+        xMin: 0, xMax: 1080, xTicks: [0, 270, 540, 810, 1080],
+        yMin: fsMin, yMax: fsMax,
+        hLines: [{ y: 2.0, color: "#ef4444", dash: [3, 3] }],
+        series: [
+          { xs: res.alpha_deg, ys: bres.F_spring, color: "#71717a", lw: 1.4, dash: [4, 4] },
+          { xs: res.alpha_deg, ys: res.F_spring, color: "#38bdf8", lw: 1.8 }
+        ],
+        legend: [
+          { label: "기준 13B", color: "#71717a" },
+          { label: "현재 설정", color: "#38bdf8" },
+          { label: "들뜸 한계(2N)", color: "#ef4444" }
+        ]
+      });
+
+      // 3. 장기 운전 사이클 누적 마모 추이
+      const cgM = Array.from(res.cycle_grid, (v) => v / 1e6);
+      const longMax = Math.max(
+        bres.peak_wear_over_time[bres.peak_wear_over_time.length - 1],
+        res.peak_wear_over_time[res.peak_wear_over_time.length - 1],
+        1e-3
+      );
+      drawLineChart(document.getElementById("chart-long"), {
+        title: "장기 운전 사이클 누적 마모 추이 (μm)",
+        xLabel: "누적 회전 사이클 (×10⁶ 회)",
+        xMin: 0, xMax: Math.max(cgM[cgM.length - 1], 0.1),
+        yMin: 0, yMax: longMax * 1.15,
+        series: [
+          { xs: cgM, ys: bres.peak_wear_over_time, color: "#71717a", lw: 1.4, dash: [4, 4] },
+          { xs: cgM, ys: res.peak_wear_over_time, color: "#4ade80", lw: 2.0 }
+        ],
+        legend: [
+          { label: "기준 13B", color: "#71717a" },
+          { label: "현재 설정", color: "#4ade80" }
+        ]
+      });
+
+      // 4. RPM 변화에 따른 허리부 마모 저감률 (%)
+      if (state.rpmSweepDirty || !cachedRpmSweep) computeRpmSweep();
+      const { validRpm, validVal, inopRpm, inopVal } = cachedRpmSweep;
+      const curRed = ((bres.peak_waist_wear_um - res.peak_waist_wear_um) / Math.max(bres.peak_waist_wear_um, 1e-9)) * 100.0;
+
+      let yMin = -10, yMax = 10;
+      if (validVal.length > 0) {
+        const mn = Math.min(...validVal, 0);
+        const mx = Math.max(...validVal, 0);
+        const pad = Math.max((mx - mn) * 0.22, 2.0);
+        yMin = mn - pad; yMax = mx + pad;
+      }
+
+      const rpmSeries = [
+        { xs: validRpm, ys: validVal, color: "#38bdf8", lw: 1.8, marker: "dot", r: 3.0 },
+        { xs: inopRpm, ys: inopVal, color: "#ef4444", pointsOnly: true, marker: "x" }
+      ];
+      if (res.operable) {
+        rpmSeries.push({ xs: [p.rpm], ys: [curRed], color: "#fbbf24", pointsOnly: true, marker: "dot", r: 5.0, edge: "#000000" });
+      }
+
+      drawLineChart(document.getElementById("chart-rpm"), {
+        title: "RPM 변화에 따른 허리부 마모 저감률 (%)",
+        xLabel: "엔진 회전수 (RPM)",
+        xMin: 500, xMax: 9500, xTicks: [1000, 3000, 5000, 7000, 9000],
+        yMin, yMax,
+        hLines: [{ y: 0, color: "#71717a", dash: [3, 3] }],
+        vLines: [{ x: p.rpm, color: "#fbbf24", dash: [4, 4] }],
+        series: rpmSeries,
+        legend: [
+          { label: "저감률", color: "#38bdf8" },
+          { label: "블로우 RPM", color: "#ef4444" },
+          { label: "현재 RPM", color: "#fbbf24" }
+        ]
+      });
+    }
+
+    // =========================================================================
+    // 9. [뷰 C] 세팅값 영향 분석 렌더링
+    // =========================================================================
+    function renderAnalysisView() {
+      const p = getCurrentSimParams();
+      const baseP = { ...baselineParams, rpm: p.rpm, cycles: p.cycles };
+      const bres = baselineRes;
+      const res = currentRes;
+      const baseWear = Math.max(bres.peak_waist_wear_um, 1e-9);
+
+      const factors = [
+        ["delta_a", "허리부 완화량 Δa"],
+        ["sigma", "보정 각도 폭 σ"],
+        ["e", "편심량(이심률) e"],
+        ["R", "로터 반경 R"],
+        ["a0", "평행 이동량 a₀"],
+        ["r_u", "씰 팁 반경 r_u"]
+      ];
+
+      const changedAny = factors.some(([k]) => Math.abs(p[k] - baseP[k]) > (k !== "sigma" ? 1e-4 : 0.2));
+      const labels = [], values = [], detailContrib = {};
+      let title, subTitle;
+
+      if (changedAny) {
+        title = "13B 기본 대비 요소별 단독 마모 변화율 (%)";
+        subTitle = "(음수 − : 마모 감소 기여 / 양수 + : 마모 증가)";
+        for (const [k, lbl] of factors) {
+          let pct = 0;
+          if (k === "sigma") {
+            if (Math.abs(p.delta_a) > 1e-4) {
+              const wDaOnly = model.simulate({ ...baseP, delta_a: p.delta_a }).peak_waist_wear_um;
+              const wDaSig = model.simulate({ ...baseP, delta_a: p.delta_a, sigma: p.sigma }).peak_waist_wear_um;
+              pct = ((wDaSig - wDaOnly) / baseWear) * 100.0;
+            }
+          } else {
+            const wTest = model.simulate({ ...baseP, [k]: p[k] }).peak_waist_wear_um;
+            pct = ((wTest - baseWear) / baseWear) * 100.0;
+          }
+          labels.push(lbl); values.push(pct); detailContrib[k] = pct;
+        }
+      } else {
+        title = "13B 기본 상태 민감도 (소폭 증가 시 마모 변화 %)";
+        subTitle = "(음수 − : 증가시킬수록 마모 감소 / 양수 + : 마모 증가)";
+        const probes = { delta_a: 0.1, sigma: 15, e: 1, R: 5, a0: 0.5, r_u: 0.5 };
+        for (const [k, lbl] of factors) {
+          let pct = 0;
+          if (k === "sigma") {
+            const wRef = model.simulate({ ...baseP, delta_a: 0.1 }).peak_waist_wear_um;
+            const wTest = model.simulate({ ...baseP, delta_a: 0.1, sigma: baseP.sigma + probes.sigma }).peak_waist_wear_um;
+            pct = ((wTest - wRef) / Math.max(wRef, 1e-9)) * 100.0;
+          } else {
+            const wTest = model.simulate({ ...baseP, [k]: baseP[k] + probes[k] }).peak_waist_wear_um;
+            pct = ((wTest - baseWear) / baseWear) * 100.0;
+          }
+          labels.push(`${lbl}\n(+${probes[k]})`); values.push(pct); detailContrib[k] = pct;
+        }
+      }
+
+      const maxAbs = Math.max(...values.map((v) => Math.abs(v)), 2.0);
+      drawHorizontalBarChart(document.getElementById("chart-contrib"), {
+        title, subTitle,
+        xLabel: "허리부 최대 마모 변화율 (%)",
+        xMin: -maxAbs * 1.35, xMax: maxAbs * 1.35,
+        labels, values,
+        colors: values.map((v) => (v < -0.05 ? "#4ade80" : v > 0.05 ? "#f87171" : "#71717a")),
+        valFmt: (v) => `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`,
+        leftPad: 118
+      });
+
+      // Right text report
+      const reductionPct = ((baseWear - res.peak_waist_wear_um) / baseWear) * 100.0;
+      const areaDiffPct = ((res.area_housing - bres.area_housing) / Math.max(bres.area_housing, 1e-9)) * 100.0;
+      let kappaBaseW = -Infinity, kappaCurrW = -Infinity;
+      for (let i = 0; i < bres.kappa_signed.length; i++) {
+        if (bres.kappa_signed[i] > kappaBaseW) kappaBaseW = bres.kappa_signed[i];
+        if (res.kappa_signed[i] > kappaCurrW) kappaCurrW = res.kappa_signed[i];
+      }
+      const kappaRedPct = ((kappaBaseW - kappaCurrW) / Math.max(Math.abs(kappaBaseW), 1e-9)) * 100.0;
+
+      const env9k = model.checkRpmEnvelope(res, p, 500, 9000);
+      const optSummary = state.lastOptInfo
+        ? `<span class="text-zinc-200">• 최근 자동 최적화 수행 모드: </span><span class="text-emerald-400 font-bold">${
+            state.lastOptInfo.profile === "sealed_9k" ? "9,000 RPM 정상 기밀 마모 최소화" : "원클릭 자동 마모 최소화"
+          } [${state.lastOptInfo.mode === "local_df" ? "허리부 국부 DF 보정 전용" : "전체 프로파일 + 국부 DF 동시 수정"}]</span>`
+        : `<span class="text-zinc-400">• 현재 수동 슬라이더 설정 상태입니다. (자동 최적화 버튼 실행 시 최적해 근거가 반영됩니다)</span>`;
+
+      const wearStatusHtml = !res.operable
+        ? `<span class="text-red-400 font-bold">엔진 블로우 상태</span>`
+        : reductionPct > 0
+          ? `<span class="text-emerald-400 font-bold">+${reductionPct.toFixed(2)}% 저감</span>`
+          : `<span class="text-amber-400 font-bold">${reductionPct.toFixed(2)}% 변화</span>`;
+
+      const constraints = [
+        ["최소 스프링 반발력 F_s,min", `${res.F_spring_min.toFixed(2)} N`, "≥ 5.0 N 정상 기밀 (들뜸 한계 2.0 N)", res.F_spring_min >= 5.0, res.F_spring_min >= 2.0],
+        ["최소 반경 합력 F_radial,min (현재 RPM)", `${res.F_radial_min.toFixed(2)} N`, "≥ 5.0 N 정상 기밀 (들뜸 한계 0.5 N)", res.F_radial_min >= 5.0, res.F_radial_min >= 0.5],
+        ["9,000 RPM 고속 최소 밀착력", `${env9k.f_rad_min_9000.toFixed(2)} N`, "≥ 5.0 N 정상 기밀 (> 0.5 N 작동 가능)", env9k.sealed_at_9000, env9k.all_operable],
+        ["하우징 단면적(압축비) 편차", `${areaDiffPct >= 0 ? "+" : ""}${areaDiffPct.toFixed(2)} %`, "≤ ±1.5 % (국부 DF 제원 보존 한계)", Math.abs(areaDiffPct) <= 1.5, Math.abs(areaDiffPct) <= 5.0],
+        ["형상 계수 K & 최대 요동각 φ_max", `K=${res.K_ratio.toFixed(2)}, φ=${res.phi_max_deg.toFixed(2)}°`, "5.0 < K ≤ 12.0, φ_max < 35.0°", res.K_ratio > 5.0 && res.K_ratio <= 12.0 && res.phi_max_deg < 35.0, res.K_ratio > 5.0 && res.K_ratio <= 12.0 && res.phi_max_deg < 35.0],
+        ["행정 체적(배기량) V_H", `${res.V_H_cc.toFixed(1)} cc`, "654 cc ± 65 cc (13B 동급 배기량 유지)", Math.abs(res.V_H_cc - 654.0) <= 65.0, true]
+      ];
+
+      const constraintHtml = constraints.map(([name, val, lim, ok, opOk]) => {
+        const cls = ok ? "text-emerald-400" : opOk ? "text-amber-400" : "text-red-400";
+        const badge = ok ? "[안전]" : opOk ? "[주의]" : "[위반]";
+        return `<div>• ${name}: <span class="${cls} font-bold">${val} ${badge}</span> <span class="text-zinc-400 text-[11px]">(${lim})</span></div>`;
+      }).join("");
+
+      const leakCls = res.leakage_status === "sealed" ? "text-emerald-400" : res.leakage_status === "marginal" ? "text-amber-400" : "text-red-400";
+      const leakLbl = res.leakage_status === "sealed" ? "기밀 정상" : res.leakage_status === "marginal" ? "미세 누설 주의" : "심각한 기밀 붕괴";
+
+      document.getElementById("report-analysis").innerHTML = `
+        <div class="text-sky-400 font-bold text-[13px] mb-1">1. 현재 세팅 및 최적화 요약</div>
+        <div class="space-y-1 mb-3 text-zinc-200">
+          <div>${optSummary}</div>
+          <div>• 13B 기준 대비 허리부 최대 마모: ${baseWear.toFixed(3)} μm → ${res.peak_waist_wear_um.toFixed(3)} μm (${wearStatusHtml})</div>
+          <div>• 허리부 최대 볼록 곡률(κ): ${kappaBaseW.toFixed(5)} → ${kappaCurrW.toFixed(5)} mm⁻¹ (${kappaRedPct >= 0 ? "+" : ""}${kappaRedPct.toFixed(1)}% 완화)</div>
+        </div>
+
+        <div class="text-sky-400 font-bold text-[13px] mb-1">2. 각 설계 요소가 세팅값과 마모에 미친 영향</div>
+        <div class="space-y-2 mb-3 text-zinc-200">
+          <div>
+            <div class="font-bold text-white">① 허리부 완화량 (Δa_max = <span class="${p.delta_a > 0 ? "text-emerald-400" : "text-zinc-400"}">${p.delta_a.toFixed(3)} mm</span>, 단독 영향 ${detailContrib.delta_a >= 0 ? "+" : ""}${detailContrib.delta_a.toFixed(2)}%)</div>
+            <p class="text-zinc-300 pl-2">허리부(270°, 810°) 내벽을 바깥쪽으로 미세하게 밀어내면 볼록 곡률(κ_signed)이 완만해져 등가 곡률 반경(R_eq)이 커지고 조도 접촉압(p_asp)이 직접 감소합니다. 동시에 씰 돌출(Δh) 증가로 스프링 반발력이 낮아지므로 정상 기밀 기준(F_s,min ≥ 5.0 N) 내에서 최적화됩니다.</p>
+          </div>
+          <div>
+            <div class="font-bold text-white">② 허리부 보정 각도 폭 (σ = <span class="text-emerald-400">${p.sigma.toFixed(1)}°</span>, Δa 대비 추가 영향 ${detailContrib.sigma >= 0 ? "+" : ""}${detailContrib.sigma.toFixed(2)}%)</div>
+            <p class="text-zinc-300 pl-2">σ가 너무 좁으면(&lt; 25°) 보정 경계에서 곡률이 급격히 꺾여 2차 마모 피크가 생기고, 너무 넓으면(&gt; 70°) 연소실 전체 단면적(압축비) 편차가 커집니다.</p>
+          </div>
+          <div>
+            <div class="font-bold text-white">③ 편심량 e &amp; 로터 반경 R (e=${p.e.toFixed(2)} mm, R=${p.R.toFixed(2)} mm, K=${res.K_ratio.toFixed(2)}, 단독 영향 e:${detailContrib.e >= 0 ? "+" : ""}${detailContrib.e.toFixed(2)}% / R:${detailContrib.R >= 0 ? "+" : ""}${detailContrib.R.toFixed(2)}%)</div>
+            <p class="text-zinc-300 pl-2">형상 계수 K=R/e가 커질수록 최대 요동각 φ_max가 감소하고 고속 단축 허리부의 구심 관성력(들뜸 힘)이 크게 줄어 9,000 RPM에서도 정상 기밀을 유지할 수 있습니다.</p>
+          </div>
+          <div>
+            <div class="font-bold text-white">④ 에이펙스 씰 팁 반경 r_u &amp; 평행 이동량 a₀ (r_u=${p.r_u.toFixed(2)} mm, a₀=${p.a0.toFixed(2)} mm, 단독 영향 r_u:${detailContrib.r_u >= 0 ? "+" : ""}${detailContrib.r_u.toFixed(2)}% / a₀:${detailContrib.a0 >= 0 ? "+" : ""}${detailContrib.a0.toFixed(2)}%)</div>
+            <p class="text-zinc-300 pl-2">Archard 선접촉 적분 법칙에 따라 r_u 증가 시 접촉압 감소가 접촉 폭 증가로 상쇄되어 유막 개선 효과만 완만히 나타나며, r_u·sin(φ_max) &gt; b_u/2 초과 시 모서리 접촉으로 마모와 누설이 다시 증가합니다.</p>
+          </div>
+        </div>
+
+        <div class="text-sky-400 font-bold text-[13px] mb-1">3. 물리적 제약조건 여유도 (최적값 결정 한계)</div>
+        <div class="space-y-1 mb-3 text-zinc-200">${constraintHtml}</div>
+
+        <div class="text-sky-400 font-bold text-[13px] mb-1">4. 엔진 블로우 및 기밀 누설(블로바이) 판정 기준 [문헌 인용]</div>
+        <div class="space-y-1 text-zinc-300">
+          <div>• 현재 추정 사이클당 블로바이 누설률: <span class="${leakCls} font-bold">${res.leakage_pct.toFixed(2)}% (${leakLbl})</span></div>
+          ${res.leakage_reasons.length ? `<div class="text-amber-400 pl-2">- 누설 유발 요인: ${res.leakage_reasons.join(", ")}</div>` : ""}
+          <div class="text-[11px] text-zinc-400 pt-1 space-y-0.5">
+            <div>• [Yamamoto 1981]: φ_max ≥ 35° 시 쐐기 고착, F_rad ≤ 0.5 N 시 동적 씰 들뜸, ε_th &lt; 11.5 시 착화 불가.</div>
+            <div>• [Hsieh &amp; Cheng 2015]: K ≤ 5.0 (λ ≥ 0.6) 시 로터 내부 페이징 기어와 허리부 간섭으로 엔진 블로우.</div>
+            <div>• [Üner &amp; Cihan 2025]: r_u ≥ b_u/2 필수, Δh_min ≤ 0.5 mm 충돌 및 F_s ≤ 2.0 N 시 기밀 상실.</div>
+            <div>• [Pennock &amp; Beard 1997]: 2·r_u·sin(φ_max) &gt; b_u 시 모서리 접촉 및 미세 누설 유발.</div>
+            <div>• [Picard et al. 2016]: 총 블로바이 누설률 ≥ 12% 도달 시 압축 붕괴로 엔진 블로우.</div>
+          </div>
+        </div>
+      `;
+    }
+
+    // =========================================================================
+    // 10. [뷰 D] 기밀 누설 분석 렌더링
+    // =========================================================================
+    function renderSealingView() {
+      const p = getCurrentSimParams();
+      const res = currentRes;
+      const lb = res.leakage_breakdown;
+
+      const compLabels = [
+        "① 기본 구조 누설\n(Picard 2016)",
+        "② 동적 씰 들뜸\n(Yamamoto 1981)",
+        "③ 스프링 예압 저하\n(Üner 2025)",
+        "④ 모서리 접촉\n(Pennock 1997)",
+        "⑤ 허리부 단차\n(Picard 2016)",
+        "합계 블로바이 (%)"
+      ];
+      const compVals = [
+        lb.base_leak_pct,
+        lb.dyn_liftoff_leak,
+        lb.spring_leak,
+        lb.edge_leak,
+        lb.relief_leak,
+        res.leakage_pct
+      ];
+      const totalCol = res.leakage_status === "sealed" ? "#4ade80" : res.leakage_status === "marginal" ? "#fbbf24" : "#ef4444";
+      const barCols = [
+        "#38bdf8",
+        lb.dyn_liftoff_leak > 0.01 ? "#f87171" : "#3f3f46",
+        lb.spring_leak > 0.01 ? "#fb923c" : "#3f3f46",
+        lb.edge_leak > 0.01 ? "#facc15" : "#3f3f46",
+        lb.relief_leak > 0.01 ? "#c084fc" : "#3f3f46",
+        totalCol
+      ];
+
+      drawHorizontalBarChart(document.getElementById("chart-leak-bar"), {
+        title: "블로바이 누설률(%) 구성 요소별 분해",
+        xLabel: "사이클당 블로바이 누설률 (%)",
+        xMin: 0, xMax: Math.max(Math.max(...compVals) * 1.28, 14.5),
+        labels: compLabels, values: compVals, colors: barCols,
+        vLines: [
+          { x: 4.5, color: "#fbbf24", label: "주의 4.5%" },
+          { x: 12.0, color: "#ef4444", label: "붕괴 12%" }
+        ],
+        valFmt: (v) => `${v.toFixed(2)}%`,
+        leftPad: 112
+      });
+
+      let fMin = Infinity, fMax = -Infinity;
+      for (let i = 0; i < res.F_radial_raw.length; i++) {
+        if (res.F_radial_raw[i] < fMin) fMin = res.F_radial_raw[i];
+        if (res.F_radial_raw[i] > fMax) fMax = res.F_radial_raw[i];
+      }
+      drawLineChart(document.getElementById("chart-rad-force"), {
+        title: "동적 씰 들뜸 진단: F_rad = F_spring + F_centrifugal + F_gas (N)",
+        xLabel: "편심축 각도 EA (°) [270°·810°: 허리부]",
+        xMin: 0, xMax: 1080, xTicks: [0, 270, 540, 810, 1080],
+        yMin: Math.min(fMin - 5, -5), yMax: Math.max(fMax * 1.12, 35),
+        vBands: [
+          { x0: 215, x1: 325, color: "rgba(255,255,255,0.06)" },
+          { x0: 755, x1: 865, color: "rgba(255,255,255,0.06)" }
+        ],
+        hLines: [
+          { y: 0.5, color: "#ef4444", dash: [4, 4] },
+          { y: 5.0, color: "#4ade80", dash: [2, 3] }
+        ],
+        fillBelow: { xs: res.alpha_deg, ys: res.F_radial_raw, thresh: 0.5, color: "rgba(239,68,68,0.35)" },
+        series: [{ xs: res.alpha_deg, ys: res.F_radial_raw, color: "#38bdf8", lw: 1.6 }],
+        legend: [
+          { label: "F_rad(α)", color: "#38bdf8" },
+          { label: "정상(5N)", color: "#4ade80" },
+          { label: "들뜸(0.5N)", color: "#ef4444" }
+        ]
+      });
+
+      // Right text report
+      const stMap = {
+        sealed: ["✓ 정상 기밀 (정상 운전 가능)", "text-emerald-400"],
+        marginal: ["△ 미세 누설 주의 (효율·출력 저하 우려)", "text-amber-400"],
+        severe: ["✕ 기밀 붕괴 (압축 불능 · 엔진 블로우)", "text-red-400"]
+      };
+      const [stLabel, stCls] = stMap[res.leakage_status];
+
+      const c1Ok = res.F_radial_min >= 5.0, c1Sev = res.F_radial_min <= 0.5;
+      const c2Ok = res.F_spring_min >= 5.0, c2Sev = res.F_spring_min <= 2.0;
+      const c3Ok = !res.edge_loading_active;
+      const c4Ok = p.delta_a <= 0.22;
+
+      document.getElementById("report-sealing").innerHTML = `
+        <div class="text-sky-400 font-bold text-[13px] mb-1">1. 현재 엔진 기밀 상태 진단 요약</div>
+        <div class="space-y-1 mb-3 text-zinc-200">
+          <div>• 추정 사이클당 총 블로바이(Blow-by) 누설률: <span class="${stCls} font-bold">${res.leakage_pct.toFixed(2)}% [${stLabel}]</span></div>
+          <div>• 현재 운전 회전수(${p.rpm.toFixed(0)} RPM) 기준 시간 가중치: (6000 / ${p.rpm.toFixed(0)})^0.65 = ${lb.rpm_factor.toFixed(2)}배</div>
+          <div>• 감지된 기밀 이상 요인: ${
+            res.leakage_reasons.length
+              ? `<span class="${res.leakage_status === "severe" ? "text-red-400" : "text-amber-400"} font-bold">${res.leakage_reasons.join(", ")}</span>`
+              : `<span class="text-emerald-400 font-bold">없음 (정상적인 기본 씰 틈새 누설만 존재)</span>`
+          }</div>
+        </div>
+
+        <div class="text-sky-400 font-bold text-[13px] mb-1">2. 퍼센트(%) 표기의 물리적 의미와 판정 기준</div>
+        <div class="space-y-1 mb-3 text-zinc-300">
+          <p>• 블로바이 누설률(%)은 '1회 연소 사이클 동안 작동실에 흡입된 전체 혼합기 질량 대비, 에이펙스·코너·사이드 씰 틈새를 통해 인접 저압 작동실로 빠져나가는 가스 질량의 백분율'을 의미합니다.</p>
+          <p>• [Picard et al., 2016, Int. J. Engine Res.]의 13B 로터리 엔진 씰 누설 해석 결과에 따르면, 정상 엔진에서도 6,000 RPM 기준 약 1.5~2.0%(본 모델 1.8%)의 기본 구조 누설이 발생하며, 저회전일수록 가스 체류 시간이 길어져 회전수의 -0.65제곱에 비례해 누설률이 증가합니다.</p>
+          <p>• 3단계 기밀 판정 기준: 정상(&lt; 4.5%) / 누설 주의(4.5% ~ 12.0%) / 기밀 붕괴(≥ 12.0% 또는 씰 들뜸)</p>
+        </div>
+
+        <div class="text-sky-400 font-bold text-[13px] mb-1">3. 엔진 기밀 문제를 확인하는 4대 물리 진단 지표 (실시간 판정)</div>
+        <div class="space-y-2 mb-3 text-zinc-200">
+          <div>
+            <div class="font-bold text-white">① 동적 씰 들뜸(Dynamic Lift-off) 검사 — <span class="${c1Ok ? "text-emerald-400" : c1Sev ? "text-red-400" : "text-amber-400"}">${c1Ok ? "[정상]" : c1Sev ? `[들뜸 발생: 1사이클 중 ${lb.liftoff_frac_pct.toFixed(1)}% 구간]` : "[밀착 여유 주의 (< 5.0 N)]"}</span></div>
+            <div class="text-zinc-300 pl-2">현재 최소 반경 밀착 합력 F_rad,min = ${res.F_radial_min.toFixed(2)} N (정상 ≥ 5.0 N, 들뜸 ≤ 0.5 N) → 누설 가산: +${lb.dyn_liftoff_leak.toFixed(2)}% [Yamamoto 1981]</div>
+          </div>
+          <div>
+            <div class="font-bold text-white">② 저압 행정 스프링 예압 유지 검사 — <span class="${c2Ok ? "text-emerald-400" : c2Sev ? "text-red-400" : "text-amber-400"}">${c2Ok ? "[정상]" : c2Sev ? "[예압 상실]" : "[예압 약화]"}</span></div>
+            <div class="text-zinc-300 pl-2">현재 최소 스프링 반력 F_s,min = ${res.F_spring_min.toFixed(2)} N (정상 ≥ 5.0 N, 붕괴 ≤ 2.0 N) → 누설 가산: +${lb.spring_leak.toFixed(2)}% [Üner &amp; Cihan 2025]</div>
+          </div>
+          <div>
+            <div class="font-bold text-white">③ 에이펙스 씰 팁 연속 접촉 폭 검사 — <span class="${c3Ok ? "text-emerald-400" : "text-amber-400"}">${c3Ok ? "[정상]" : "[모서리 접촉 발생]"}</span></div>
+            <div class="text-zinc-300 pl-2">현재 필요 접촉 폭 2·r_u·sin(φ_max) = ${lb.max_contact_width_mm.toFixed(2)} mm (씰 두께 b_u = ${p.b_u.toFixed(2)} mm) → 누설 가산: +${lb.edge_leak.toFixed(2)}% [Pennock &amp; Beard 1997]</div>
+          </div>
+          <div>
+            <div class="font-bold text-white">④ 허리부 국부 완화량(Δa) 코너 씰 단차 검사 — <span class="${c4Ok ? "text-emerald-400" : "text-amber-400"}">${c4Ok ? "[정상]" : "[단차 누설 주의]"}</span></div>
+            <div class="text-zinc-300 pl-2">현재 허리부 완화량 Δa_max = ${p.delta_a.toFixed(3)} mm (허용 기준 ≤ 0.220 mm) → 누설 가산: +${lb.relief_leak.toFixed(2)}% [Picard et al. 2016]</div>
+          </div>
+        </div>
+
+        <div class="text-sky-400 font-bold text-[13px] mb-1">4. 퍼센트(%) 합산 수식 요약</div>
+        <div class="text-[11px] text-zinc-400 space-y-0.5">
+          <div>• 총 블로바이(%) = 기본 누설(1.8 × RPM계수) + 동적 들뜸 누설 + 스프링 저하 누설 + 모서리 접촉 누설 + 단차 누설</div>
+          <div>• 현재 계산식: ${lb.base_leak_pct.toFixed(2)}% + ${lb.dyn_liftoff_leak.toFixed(2)}% + ${lb.spring_leak.toFixed(2)}% + ${lb.edge_leak.toFixed(2)}% + ${lb.relief_leak.toFixed(2)}% = <strong class="text-zinc-200">${res.leakage_pct.toFixed(2)}%</strong> (최대 95% 클램핑)</div>
+        </div>
+      `;
+    }
+
+    // =========================================================================
+    // 11. 전체 재계산, 대시보드 갱신 & 탭 전환
+    // =========================================================================
+    function recalculateAndRedraw() {
+      const p = getCurrentSimParams();
+      baselineRes = model.simulate({ ...baselineParams, rpm: p.rpm, cycles: p.cycles });
+      currentRes = model.simulate(p);
+
+      state.rpmSweepDirty = true;
+      state.mesh3dDirty = true;
+
+      const res = currentRes;
+      const bres = baselineRes;
+      const baseWear = Math.max(bres.peak_waist_wear_um, 1e-9);
+      const reductionPct = ((baseWear - res.peak_waist_wear_um) / baseWear) * 100.0;
+      const areaDiffPct = ((res.area_housing - bres.area_housing) / Math.max(bres.area_housing, 1e-9)) * 100.0;
+      const dispDiffPct = ((res.V_H_cc - bres.V_H_cc) / Math.max(bres.V_H_cc, 1e-9)) * 100.0;
+
+      // 7 Metric Cards
+      document.getElementById("m-peak-wear").textContent = `${res.peak_waist_wear_um.toFixed(3)} μm`;
+
+      const elRed = document.getElementById("m-reduction");
+      if (res.operable) {
+        elRed.textContent = `${reductionPct >= 0 ? "+" : ""}${reductionPct.toFixed(2)} %`;
+        elRed.style.color = reductionPct >= 0 ? "#4ade80" : "#f87171";
+      } else {
+        elRed.textContent = "N/A (엔진 블로우)";
+        elRed.style.color = "#ef4444";
+      }
+
+      const elPhi = document.getElementById("m-phi-max");
+      elPhi.textContent = `${res.phi_max_deg.toFixed(2)} °`;
+      elPhi.style.color = res.phi_max_deg >= 35.0 ? "#ef4444" : "#ffffff";
+
+      const elSpr = document.getElementById("m-spring");
+      elSpr.textContent = `${res.F_spring_min.toFixed(1)} / ${res.F_spring_max.toFixed(1)} N`;
+      elSpr.style.color = res.F_spring_min <= 2.0 ? "#ef4444" : "#ffffff";
+
+      const elLift = document.getElementById("m-liftoff");
+      if (!res.operable || res.leakage_status === "severe") {
+        elLift.textContent = `✕ 누설 발생 (${res.leakage_pct.toFixed(1)}%)`;
+        elLift.style.color = "#ef4444";
+      } else if (res.leakage_status === "sealed") {
+        elLift.textContent = `✓ 정상 (${res.leakage_pct.toFixed(1)}%)`;
+        elLift.style.color = "#4ade80";
+      } else {
+        elLift.textContent = `△ 주의 (${res.leakage_pct.toFixed(1)}%)`;
+        elLift.style.color = "#fbbf24";
+      }
+
+      document.getElementById("m-disp").textContent = `${res.V_H_cc.toFixed(0)} cc (${dispDiffPct >= 0 ? "+" : ""}${dispDiffPct.toFixed(1)}%)`;
+      document.getElementById("m-comp").textContent = `${areaDiffPct >= 0 ? "+" : ""}${areaDiffPct.toFixed(2)} %`;
+
+      // Operability Bar
+      const opBadge = document.getElementById("op-badge");
+      const opDetail = document.getElementById("op-detail");
+      if (res.operable) {
+        opBadge.textContent = "● 정상 작동 가능 (OPERABLE)";
+        opBadge.style.backgroundColor = "#052e16";
+        opBadge.style.color = "#4ade80";
+        if (res.leakage_status === "marginal") {
+          opDetail.textContent = "작동 가능 (미세 누설 주의: " + res.leakage_reasons.join(", ") + ")";
+          opDetail.style.color = "#fbbf24";
+        } else {
+          opDetail.textContent = "기어 간섭 없음 · 씰 기밀 유지 · 요동각/압축비 정상 범위";
+          opDetail.style.color = "#ffffff";
+        }
+      } else {
+        opBadge.textContent = "✕ 엔진 블로우 (ENGINE BLOW)";
+        opBadge.style.backgroundColor = "#450a0a";
+        opBadge.style.color = "#f87171";
+        opDetail.textContent = "원인: " + res.inoperable_reasons.join(" | ");
+        opDetail.style.color = "#fca5a5";
+      }
+
+      document.getElementById("op-specs").textContent =
+        `K=${res.K_ratio.toFixed(2)} | λ=${res.lambda_hsieh.toFixed(3)} | ε_th=${res.eps_th.toFixed(1)} | 1로터=${res.V_H_cc.toFixed(0)}cc (2로터 ${(res.V_H_cc * 2).toFixed(0)}cc)`;
+
+      // Redraw active tab
+      if (state.activeTab === "engine") {
+        render2DFrame();
+      } else if (state.activeTab === "engine3d") {
+        init3DScene();
+        rebuild3DHousing();
+        render3DFrame();
+      } else if (state.activeTab === "graphs") {
+        renderDetailGraphs();
+      } else if (state.activeTab === "analysis") {
+        renderAnalysisView();
+      } else if (state.activeTab === "sealing") {
+        renderSealingView();
+      }
+    }
+
+    function switchTab(tabName) {
+      state.activeTab = tabName;
+      const views = ["engine", "engine3d", "graphs", "analysis", "sealing"];
+      const labels = {
+        engine: "엔진 시뮬레이션",
+        engine3d: "3D 회전 시뮬레이션",
+        graphs: "상세 마모 그래프",
+        analysis: "세팅값 영향 분석",
+        sealing: "기밀 누설 분석"
+      };
+      for (const v of views) {
+        const el = document.getElementById(`view-${v}`);
+        const btn = document.getElementById(`tab-${v}`);
+        const isActive = v === tabName;
+        el.classList.toggle("hidden", !isActive);
+        if (isActive) {
+          btn.textContent = `● ${labels[v]}`;
+          btn.className = "tab-btn px-3 py-1.5 rounded-md text-xs font-bold transition bg-white text-black";
+        } else {
+          btn.textContent = labels[v];
+          btn.className = "tab-btn px-3 py-1.5 rounded-md text-xs font-bold transition bg-zinc-900 text-white border border-zinc-700 hover:bg-zinc-800";
+        }
+      }
+
+      requestAnimationFrame(() => {
+        if (tabName === "engine") render2DFrame();
+        else if (tabName === "engine3d") {
+          init3DScene();
+          if (state.mesh3dDirty) rebuild3DHousing();
+          render3DFrame();
+        } else if (tabName === "graphs") renderDetailGraphs();
+        else if (tabName === "analysis") renderAnalysisView();
+        else if (tabName === "sealing") renderSealingView();
+      });
+    }
+
+    // =========================================================================
+    // 12. 결정론적 자동 마모 최소화 최적화 (Standard & 9,000 RPM Sealed)
+    // =========================================================================
+    function setStatus(text, color = "#4ade80") {
+      const el = document.getElementById("status-badge");
+      el.textContent = text;
+      el.style.color = color;
+    }
+
+    function syncSlidersFromState() {
+      for (const key of Object.keys(state.params)) {
+        const sl = document.getElementById(`sl-${key}`);
+        const vl = document.getElementById(`val-${key}`);
+        if (sl) sl.value = state.params[key];
+        if (vl) vl.textContent = SLIDER_FMT[key](state.params[key]);
+      }
+    }
+
+    function runAutoOptimize(profile = "standard") {
+      if (state.isOptimizing) return;
+      state.isOptimizing = true;
+      const isSealed9k = profile === "sealed_9k";
+
+      const btnStd = document.getElementById("btn-opt-standard");
+      const btnSeal = document.getElementById("btn-opt-sealed");
+      btnStd.disabled = true;
+      btnSeal.disabled = true;
+      if (isSealed9k) {
+        btnSeal.textContent = "⏳ 9,000 RPM 정상 기밀 최적 탐색 중...";
+        setStatus("9,000 RPM 정상 기밀 최적화 중...", "#38bdf8");
+      } else {
+        btnStd.textContent = "⏳ 9,000 RPM 대응 최적 세팅 탐색 중...";
+        setStatus("9,000 RPM 전 구간 최적화 중...", "#38bdf8");
+      }
+
+      // Yield 30ms so browser paints loading UI before synchronous search
+      setTimeout(() => {
+        try {
+          const mode = state.mode;
+          const initP = getCurrentSimParams();
+          const baseArea = baselineRes.area_housing;
+
+          const snap = (val, step, vmin, vmax) =>
+            Math.max(vmin, Math.min(vmax, Math.round(val / step) * step));
+
+          const rpmEnvPenalty = (r, p, enforce9kSealed) => {
+            const env = model.checkRpmEnvelope(r, p, 500.0, 9000.0);
+            let pen = 0.0;
+            if (!env.all_operable) pen += 1e6;
+            if (enforce9kSealed) {
+              if (env.f_rad_min_9000 < 5.05) {
+                const d = 5.05 - env.f_rad_min_9000;
+                pen += 2000.0 * d * d + 400.0 * d;
+              }
+              if (r.F_spring_min < 5.05) {
+                const d = 5.05 - r.F_spring_min;
+                pen += 2000.0 * d * d + 400.0 * d;
+              }
+              const maxOff = p.r_u * Math.sin((r.phi_max_deg * Math.PI) / 180.0);
+              const halfB = 0.5 * (p.b_u ?? 2.0) - 0.005;
+              if (maxOff > halfB) pen += 5000.0 * ((maxOff - halfB) ** 2) + 250.0;
+              if (p.delta_a > 0.22) pen += 5000.0 * ((p.delta_a - 0.22) ** 2) + 250.0;
+              if (env.leak_9000 >= 4.45) pen += 800.0 * ((env.leak_9000 - 4.45) ** 2) + 150.0;
+            } else {
+              if (env.f_rad_min_9000 < 0.8) pen += 800.0 * ((0.8 - env.f_rad_min_9000) ** 2);
+              if (env.worst_leak_pct > 11.2) pen += 400.0 * ((env.worst_leak_pct - 11.2) ** 2);
+            }
+            return pen;
+          };
+
+          let optDict = {};
+
+          if (mode === "local_df") {
+            const fixedBase = { ...baselineParams, rpm: initP.rpm, cycles: initP.cycles };
+            const daUpper = isSealed9k ? 0.22 : 0.28;
+
+            const objLocal = (x) => {
+              const [da, sig] = x;
+              if (da < 0 || da > daUpper || sig < 15 || sig > 85) return 1e12;
+              const p = { ...fixedBase, delta_a: da, sigma: sig };
+              const r = model.simulate(p);
+              let pen = rpmEnvPenalty(r, p, false);
+              if (!r.operable) pen += 1e6;
+              const fsTarget = isSealed9k ? 5.05 : 4.5;
+              if (r.F_spring_min < fsTarget) pen += 500.0 * ((fsTarget - r.F_spring_min) ** 2);
+              const areaErr = (Math.abs(r.area_housing - baseArea) / baseArea) * 100.0;
+              if (areaErr > 1.5) pen += 200.0 * ((areaErr - 1.5) ** 2);
+              return r.peak_waist_wear_um + pen;
+            };
+
+            let bestX = [0.0, 42.0];
+            let bestLoss = objLocal(bestX);
+            const daGrid = [0, 0.005, 0.01];
+            for (let i = 0; i < 13; i++) daGrid.push(0.02 + ((daUpper - 0.02) * i) / 12);
+            for (const daG of daGrid) {
+              for (let s = 20; s <= 80; s += 10) {
+                const loss = objLocal([daG, s]);
+                if (loss < bestLoss) { bestLoss = loss; bestX = [daG, s]; }
+              }
+            }
+
+            const nm = nelderMead(objLocal, bestX, 200);
+            const steps = [[0.005, 0.0, daUpper], [1.0, 15.0, 85.0]];
+            let curX = nm.x.map((v, i) => snap(v, steps[i][0], steps[i][1], steps[i][2]));
+            let curLoss = objLocal(curX);
+            for (let pass = 0; pass < 3; pass++) {
+              let improved = false;
+              for (let idx = 0; idx < 2; idx++) {
+                const [st, lo, hi] = steps[idx];
+                for (const d of [-st, st]) {
+                  const cand = curX.slice();
+                  cand[idx] = snap(cand[idx] + d, st, lo, hi);
+                  const cl = objLocal(cand);
+                  if (cl < curLoss - 1e-9) { curX = cand; curLoss = cl; improved = true; }
+                }
+              }
+              if (!improved) break;
+            }
+            optDict = { delta_a: curX[0], sigma: curX[1] };
+          } else {
+            const fixedBase = { ...baselineParams, rpm: initP.rpm, cycles: initP.cycles, a0: initP.a0 };
+            const daUpper = isSealed9k ? 0.22 : 0.25;
+            const RUpper = isSealed9k ? 122.0 : 118.0;
+
+            const objGlobal = (x) => {
+              const [eV, RV, ruV, daV, sigV] = x;
+              if (
+                eV < 12.0 || eV > 17.5 ||
+                RV < 92.0 || RV > RUpper ||
+                ruV < 1.0 || ruV > 2.8 ||
+                daV < 0.0 || daV > daUpper ||
+                sigV < 18.0 || sigV > 80.0
+              ) return 1e12;
+              const p = { ...fixedBase, e: eV, R: RV, r_u: ruV, delta_a: daV, sigma: sigV };
+              const r = model.simulate(p);
+              let pen = rpmEnvPenalty(r, p, isSealed9k);
+              if (!r.operable) pen += 1e6;
+              if (!isSealed9k) {
+                if (r.F_radial_min < 2.5) pen += 500.0 * ((2.5 - r.F_radial_min) ** 2);
+                if (r.F_spring_min < 4.5) pen += 500.0 * ((4.5 - r.F_spring_min) ** 2);
+              }
+              if (Math.abs(r.V_H_cc - 654.0) > 65.0) {
+                pen += 5.0 * ((Math.abs(r.V_H_cc - 654.0) - 65.0) ** 2);
+              }
+              return r.peak_waist_wear_um + pen;
+            };
+
+            const eGrid = isSealed9k ? [12.2, 13.0, 14.0, 15.0] : [12.5, 14.0, 15.5, 17.0];
+            const RGrid = isSealed9k ? [104.0, 110.0, 116.0, 121.0] : [95.0, 103.0, 110.0, 117.0];
+            const ruGrid = isSealed9k ? [1.5, 2.0, 2.5] : [1.0, 1.5, 2.0];
+            const daGrid = isSealed9k ? [0.06, 0.14, 0.20] : [0.04, 0.12, 0.20];
+            const cands = [];
+            for (const eg of eGrid) {
+              for (const Rg of RGrid) {
+                for (const rug of ruGrid) {
+                  for (const dag of daGrid) {
+                    for (const sigg of [36.0, 58.0]) {
+                      const pt = [eg, Rg, rug, dag, sigg];
+                      cands.push([objGlobal(pt), pt]);
+                    }
+                  }
+                }
+              }
+            }
+            cands.sort((a, b) => a[0] - b[0]);
+
+            let bestX = cands[0][1];
+            let bestLoss = cands[0][0];
+            for (let k = 0; k < 2; k++) {
+              const nm = nelderMead(objGlobal, cands[k][1], 360);
+              if (nm.fun < bestLoss) { bestLoss = nm.fun; bestX = nm.x; }
+            }
+
+            const steps = [
+              [0.1, 12.0, 17.5],
+              [0.5, 92.0, RUpper],
+              [0.05, 1.0, 2.8],
+              [0.005, 0.0, daUpper],
+              [1.0, 18.0, 80.0]
+            ];
+            let curX = bestX.map((v, i) => snap(v, steps[i][0], steps[i][1], steps[i][2]));
+            let curLoss = objGlobal(curX);
+            for (let pass = 0; pass < 4; pass++) {
+              let improved = false;
+              for (let idx = 0; idx < 5; idx++) {
+                const [st, lo, hi] = steps[idx];
+                for (const d of [-st, st]) {
+                  const cand = curX.slice();
+                  cand[idx] = snap(cand[idx] + d, st, lo, hi);
+                  const cl = objGlobal(cand);
+                  if (cl < curLoss - 1e-9) { curX = cand; curLoss = cl; improved = true; }
+                }
+              }
+              if (!improved) break;
+            }
+            optDict = { e: curX[0], R: curX[1], r_u: curX[2], delta_a: curX[3], sigma: curX[4] };
+          }
+
+          state.lastOptInfo = { mode, profile, params: { ...optDict } };
+          Object.assign(state.params, optDict);
+          syncSlidersFromState();
+          recalculateAndRedraw();
+
+          if (isSealed9k) {
+            const env = model.checkRpmEnvelope(currentRes, getCurrentSimParams(), 500, 9000);
+            if (env.sealed_at_9000) {
+              setStatus(`9,000 RPM 정상 기밀 최적화 완료 (✓ 정상, Δa=${state.params.delta_a.toFixed(3)})`, "#4ade80");
+            } else {
+              setStatus(`국부 DF 한계: 9k 정상 기밀은 전체수정 모드 필요 (Δa=${state.params.delta_a.toFixed(3)})`, "#fbbf24");
+            }
+          } else {
+            setStatus(`최적화 완료 (500~9k RPM 안정, Δa=${state.params.delta_a.toFixed(3)})`, "#4ade80");
+          }
+        } catch (err) {
+          setStatus(`최적화 오류: ${err.message}`, "#f87171");
+        } finally {
+          state.isOptimizing = false;
+          btnStd.disabled = false;
+          btnSeal.disabled = false;
+          btnStd.textContent = "⚡ 원클릭 자동 마모 최소화 최적화";
+          btnSeal.textContent = "🛡 9,000 RPM 정상 기밀 마모 최소화";
+        }
+      }, 30);
+    }
+
+    // =========================================================================
+    // 13. 이벤트 리스너 등록 & 애니메이션 루프
+    // =========================================================================
+    document.querySelectorAll(".tab-btn").forEach((btn) => {
+      btn.addEventListener("click", () => switchTab(btn.dataset.tab));
+    });
+
+    document.querySelectorAll(".cam-btn").forEach((btn) => {
+      btn.addEventListener("click", () => set3DCameraPreset(btn.dataset.cam));
+    });
+
+    document.querySelectorAll('input[name="edit-mode"]').forEach((radio) => {
+      radio.addEventListener("change", (ev) => {
+        state.mode = ev.target.value;
+        const isLocal = state.mode === "local_df";
+        if (isLocal) {
+          state.params.e = baselineParams.e;
+          state.params.R = baselineParams.R;
+          state.params.a0 = baselineParams.a0;
+          state.params.r_u = baselineParams.r_u;
+          syncSlidersFromState();
+        }
+        document.querySelectorAll(".global-slider").forEach((sl) => {
+          sl.disabled = isLocal;
+        });
+        recalculateAndRedraw();
+      });
+    });
+
+    for (const key of Object.keys(state.params)) {
+      const sl = document.getElementById(`sl-${key}`);
+      sl.addEventListener("input", () => {
+        state.params[key] = parseFloat(sl.value);
+        document.getElementById(`val-${key}`).textContent = SLIDER_FMT[key](state.params[key]);
+        recalculateAndRedraw();
+      });
+    }
+
+    document.getElementById("btn-play").addEventListener("click", () => {
+      state.isPlaying = !state.isPlaying;
+      document.getElementById("btn-play").textContent = state.isPlaying ? "⏸ 일시정지" : "▶ 회전 재생";
+    });
+
+    document.getElementById("btn-reset").addEventListener("click", () => {
+      state.lastOptInfo = null;
+      state.params.e = baselineParams.e;
+      state.params.R = baselineParams.R;
+      state.params.a0 = baselineParams.a0;
+      state.params.r_u = baselineParams.r_u;
+      state.params.rpm = baselineParams.rpm;
+      state.params.delta_a = 0.0;
+      state.params.sigma = 42.0;
+      state.params.cycles_m = 3.0;
+      syncSlidersFromState();
+      setStatus("13B 기본값 복원", "#4ade80");
+      recalculateAndRedraw();
+    });
+
+    document.getElementById("btn-opt-standard").addEventListener("click", () => runAutoOptimize("standard"));
+    document.getElementById("btn-opt-sealed").addEventListener("click", () => runAutoOptimize("sealed_9k"));
+
+    window.addEventListener("resize", () => {
+      if (state.activeTab === "engine") render2DFrame();
+      else if (state.activeTab === "engine3d") render3DFrame();
+      else if (state.activeTab === "graphs") renderDetailGraphs();
+      else if (state.activeTab === "analysis") renderAnalysisView();
+      else if (state.activeTab === "sealing") renderSealingView();
+    });
+
+    // Main animation loop (60fps smooth, stops on Engine Blow and auto-resumes when operable)
+    let lastTs = performance.now();
+    function animate(ts) {
+      const dt = Math.min(0.05, (ts - lastTs) / 1000);
+      lastTs = ts;
+
+      const canRotate = state.isPlaying && currentRes.operable;
+      if (canRotate) {
+        // Matches Python tick speed (~rpm / 350 deg per 33ms)
+        state.animAngleDeg = (state.animAngleDeg + (state.params.rpm / 350.0) * (dt / 0.033)) % 1080.0;
+      }
+
+      if (state.activeTab === "engine") {
+        render2DFrame();
+      } else if (state.activeTab === "engine3d" && threeReady) {
+        if (state.mesh3dDirty) rebuild3DHousing();
+        render3DFrame();
+      }
+
+      requestAnimationFrame(animate);
+    }
+
+    window.onload = () => {
+      syncSlidersFromState();
+      recalculateAndRedraw();
+      requestAnimationFrame(animate);
+    };
+  })();
+  </script>
+</body>
+</html>
